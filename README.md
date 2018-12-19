@@ -1,1 +1,1 @@
-# Pad--Rayligh-Ritz
+# Padé-Rayligh-Ritz
