@@ -83,9 +83,31 @@ Vector* normalize(Vector* x, double norm){
 	return v;
 }
 
-// void compute_C_and_y(double* C, ){
+/* Produit matrice-vector : A*b = c*/
+void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
+    int i, j;
+    
+    //omp_set_num_threads(4);
+    #pragma omp parallel for private(i, j)
+    for ( i = 0; i < b->size; i++){
+        c->data[i] = 0;
+        for (j = 0; j < b->size; j++){
+            c->data[i] = c->data[i] + a->data[i][j]*b->data[j];
+        }
+    }
+}
 
-// }
+
+/* Etape 4 de l'algorithme */
+void step4(Vector* C, Matrix* A, Vector* y, int m){
+
+	Vector* y1;
+	y1 = init_vector(y->size);
+	prod_mat_vect(A, y, y1);
+	for(int i = 0; i < m-1; i++){
+		C->data[i] = 
+	}
+}
 
 /* Fonction Algorithme itérative PRR */
 void PRR(int m, Vector* x){
@@ -113,8 +135,7 @@ int main(int argc, char** argv){
 	srand(time(0));
 
 	fill_vector_with_random_values(v);
-
-	free_vector(v);
 	PRR(m, v);
+	free_vector(v);
 	return 0;	
 }
