@@ -10,3 +10,6 @@ PRR: PRR.c
 
 clean:
 	@rm -rf *.o
+
+run: 
+	./$(EXEC)
