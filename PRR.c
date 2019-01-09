@@ -102,16 +102,33 @@ void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
     }
 }
 
+/* Produit scalaire */
+double prodScalaire(Vector* v1, Vector* v2){
+    double res = 0;
+    int i;
+
+    //omp_set_num_threads(thr);
+    #pragma omp parallel for private(i) reduction(+:res)
+    for (i = 0; i < v1->size; i++){
+        res += v1->data[i]*v2->data[i];
+    }
+    return res;
+}
 
 /* Etape 4 de l'algorithme */
+// C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
 void step4(Vector* C, Matrix* A, Vector* y, int m){
 
 	Vector* y1;
 	y1 = init_vector(y->size);
 	prod_mat_vect(A, y, y1);
-	for(int i = 0; i < m-1; i++){
-		C->data[i] = 
+	for(int i = 1; i <= m-1; i++){
+		C->data[2*i-1] = prodScalaire(y1, y);
+		C->data[2*i] = prodScalaire(y1, y1);
+		y = y1;
+		prod_mat_vect(A, y, y1);
 	}
+	C->data[2*m-1] = prodScalaire(y1, y);
 }
 
 /* Fonction Algorithme itérative PRR */
