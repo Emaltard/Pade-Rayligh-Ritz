@@ -124,6 +124,15 @@ double prodScalaire(Vector* v1, Vector* v2){
     return res;
 }
 
+void inversion_matrix(Matrix* m){
+	int info;
+	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], &info);
+	printf("LAPACKE_dgetrf: %d\n", info);
+
+	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], &info);
+	printf("LAPACKE_dgetri: %d\n", info);
+}
+
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
 void step4(Vector* C, Matrix* A, Vector* y, int m){
