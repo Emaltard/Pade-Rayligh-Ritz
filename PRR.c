@@ -48,9 +48,7 @@ void PRR(int m, double* x){
 	double C1, C2;
 	norm = vect_norm(y, m);
 	C1 = norm*norm;
-	if ((int)C1 == 1) {
-		printf("OK\n");
-	}
+	
 
 
 
