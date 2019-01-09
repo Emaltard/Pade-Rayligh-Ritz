@@ -57,6 +57,15 @@ void print_vector(Vector* v){
 	printf("\n");
 }
 
+void print_matrix(Matrix* m){
+	for(int i = 0; i < m->size[0]; i++){
+		for(int j = 0; j < m->size[1]; j++){
+			printf("%0.3f", m->data[i][j]);
+		}
+		printf("\n");
+	}
+}
+
 double frand_a_b(double a, double b){
     return ( rand()/(double)RAND_MAX ) * (b-a) + a;
 }
