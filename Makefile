@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -W -Wall
-LDFLAGS = -llapack
+LDFLAGS = -llapack -lm
 EXEC = PRR
 
 all: $(EXEC)
