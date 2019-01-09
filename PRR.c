@@ -50,6 +50,13 @@ void free_matrix(Matrix* m)
 	free(m);
 }
 
+void print_vector(Vector* v){
+	for(int i = 0; i < v->size; i++){
+		printf("%0.3f", v->data[i]);
+	}
+	printf("\n");
+}
+
 double frand_a_b(double a, double b){
     return ( rand()/(double)RAND_MAX ) * (b-a) + a;
 }
@@ -58,9 +65,7 @@ double frand_a_b(double a, double b){
 void fill_vector_with_random_values(Vector* v){
 	for(int i = 0; i < v->size; i++){
 		v->data[i] = frand_a_b(1.0, 1000.0);
-		printf("%0.3f  ", v->data[i]);
 	}
-	printf("\n");
 }
 
 /* Calcul de la norme d'un vecteur */
