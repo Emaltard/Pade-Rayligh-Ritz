@@ -117,33 +117,57 @@ double prodScalaire(Vector* v1, Vector* v2){
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(Vector* C, Matrix* A, Vector* y, int m){
-
+void step4(Vector* C, Matrix* A, Vector* y0, Vector* V, int m){
+	V[0] = *y0;
 	Vector* y1;
-	y1 = init_vector(y->size);
-	prod_mat_vect(A, y, y1);
+	y1 = init_vector(y0->size);
+	prod_mat_vect(A, y0, y1);
 	for(int i = 1; i <= m-1; i++){
-		C->data[2*i-1] = prodScalaire(y1, y);
+		C->data[2*i-1] = prodScalaire(y1, y0);
 		C->data[2*i] = prodScalaire(y1, y1);
-		y = y1;
-		prod_mat_vect(A, y, y1);
+		y0 = y1;
+		V[i] = *y0;
+		prod_mat_vect(A, y0, y1);
 	}
-	C->data[2*m-1] = prodScalaire(y1, y);
+	C->data[2*m-1] = prodScalaire(y1, y0);
+}
+
+void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
+	int s = V->size/2;
+	for(int i = 0; i < s; i++){
+		for(int j = 0; j < s; j++){
+			B->data[i][j] = V->data[i+j];
+			C->data[i][j] = V->data[i+j+1];
+		}
+	}
 }
 
 /* Fonction Algorithme itérative PRR */
-void PRR(int m, Vector* x){
+void PRR(int m, Vector* x, Matrix* A){
 
 	// Normalisation de x + calcul de y0
 	double norm = vect_norm(x);
 	Vector* y = normalize(x, norm);
 	
 	// C0 = || y0 ||^2
-	double C1, C2;
+	double C1;
 	norm = vect_norm(y);
 	C1 = norm*norm;
-	printf("C : %f\n", C1);
 
+	// Calcul de C1, C2,....C2m-1
+	Vector* C;
+	Vector* V = malloc(sizeof(Vector)*m);
+	C = init_vector(2*m);
+	C->data[0] = C1;
+	step4(C, A, y, V, m);
+
+	// Calcul de B^ et C^.
+	Matrix* B, *Cc;
+	B = init_matrix(m,m);
+	C = init_matrix(m,m);
+	fill_B_and_C(B, Cc, C);
+
+	// Calcul de Xm
 
 
 }
@@ -153,11 +177,13 @@ int main(int argc, char** argv){
 	
 	int m = 10;
 	Vector* v;
+	Matrix* A;
 	v = init_vector(m);
+	A = init_matrix(m, m);
 	srand(time(0));
 
 	fill_vector_with_random_values(v);
-	PRR(m, v);
+	PRR(m, v, A);
 	free_vector(v);
 	return 0;	
 }
