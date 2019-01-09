@@ -57,6 +57,15 @@ void print_vector(Vector* v){
 	printf("\n");
 }
 
+void print_matrix(Matrix* m){
+	for(int i = 0; i < m->size[0]; i++){
+		for(int j = 0; j < m->size[1]; j++){
+			printf("%0.3f", m->data[i][j]);
+		}
+		printf("\n");
+	}
+}
+
 double frand_a_b(double a, double b){
     return ( rand()/(double)RAND_MAX ) * (b-a) + a;
 }
@@ -113,6 +122,15 @@ double prodScalaire(Vector* v1, Vector* v2){
         res += v1->data[i]*v2->data[i];
     }
     return res;
+}
+
+void inversion_matrix(Matrix* m){
+	int info;
+	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], &info);
+	printf("LAPACKE_dgetrf: %d\n", info);
+
+	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], &info);
+	printf("LAPACKE_dgetri: %d\n", info);
 }
 
 /* Etape 4 de l'algorithme */
