@@ -57,8 +57,9 @@ double frand_a_b(double a, double b){
 void fill_vector_with_random_values(Vector* v){
 	for(int i = 0; i < v->size; i++){
 		v->data[i] = frand_a_b(1.0, 1000.0);
-		printf("%0.3f  ", v->data[i]);
+		printf("%0.3f", v->data[i]);
 	}
+	printf("\n");
 }
 
 // void compute_C_and_y(double* C, ){
