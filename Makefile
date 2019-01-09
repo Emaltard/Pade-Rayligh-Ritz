@@ -1,12 +1,12 @@
-CC = gcc
-CFLAGS = -W -Wall
-LDFLAGS = -llapack
-EXEC = PRR
+CC=gcc
+CFLAGS=-W -Wall
+LDFLAGS= -llapack
+EXEC=PRR
 
 all: $(EXEC)
 
-run: $(EXEC)
-	./PRR
+PRR: PRR.c
+	@$(CC) -o $@ $^ $(LDFLAGS)
 
-$(EXEC):
-	$(CC) PRR.c -o $@ $(LDFLAGS)
+clean:
+	@rm -rf *.o
