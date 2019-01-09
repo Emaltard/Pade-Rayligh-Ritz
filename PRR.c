@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "lapckake.h"
+#include "lapacke.h"
 
 double frand_a_b(double a, double b){
-    return ( rand()/(double)RAND_MAX ) * (b-a) + a
+    return ( rand()/(double)RAND_MAX ) * (b-a) + a;
 }
 
 /* Init vector randomly */
@@ -29,6 +29,7 @@ int main(int argc, char** argv){
 	double* v = malloc(sizeof(double)*m);
 	srand(time(0));
 	
+	init_vector(v, m);
 
 	return 0;	
 }
