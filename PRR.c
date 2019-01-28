@@ -73,14 +73,16 @@ double frand_a_b(double a, double b){
 /* Init vector randomly */
 void fill_vector_with_random_values(Vector* v){
 	for(int i = 0; i < v->size; i++){
-		v->data[i] = frand_a_b(1.0, 1000.0);
+		v->data[i] = frand_a_b(0.0, 1.0);
 	}
 }
 
-void fill_matrix_with_random_values(Matrix* m){
+void fill_matrix_with_random_values_symetric(Matrix* m){
 	for(int i = 0; i < m->size[0]; i++){
-		for(int j = 0; j < m->size[1]; j++){
-			m->data[i][j] = frand_a_b(1.0, 1000.0);
+		for(int j = i; j < m->size[1]; j++){
+			double value = frand_a_b(0.0, 1.0);
+			m->data[i][j] = value;
+			m->data[j][i] = value;
 		}
 	}
 }
@@ -145,21 +147,21 @@ void inversion_matrix(Matrix* m){
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
 void step4(Vector* C, Matrix* A, Vector* y0, int m, Vector* V[m]){
 	V[0] = y0;
-	printf("C:\n");
-	print_vector(C);
-	printf("V0:\n");
-	print_vector(V[0]);
-	printf("y0:\n");
-	print_vector(y0);
+	// printf("C:\n");
+	// print_vector(C);
+	// printf("V0:\n");
+	// print_vector(V[0]);
+	// printf("y0:\n");
+	// print_vector(y0);
 	printf("A:\n");
 	print_matrix(A);
 	Vector* y1;
 	y1 = init_vector(y0->size);
 	prod_mat_vect(A, y0, y1);
-	printf("y1:\n");
-	print_vector(y1);
-	for(int i = 1; i <= m-1; i++){
-		C->data[2*i-1] = prodScalaire(y1, y0);
+	// printf("y1:\n");
+	// print_vector(y1);
+	for(int i = 1; i < 2; i++){
+		C->data[(2*i)-1] = prodScalaire(y1, y0);
 		C->data[2*i] = prodScalaire(y1, y1);
 		y0 = y1;
 		V[i] = y0;
@@ -234,7 +236,7 @@ int main(int argc, char** argv){
 
 	srand(time(0));
 
-	fill_matrix_with_random_values(A);
+	fill_matrix_with_random_values_symetric(A);
 	fill_vector_with_random_values(v);
 
 	PRR(m, v, A);
