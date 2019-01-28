@@ -5,6 +5,9 @@
 #include <math.h>
 #include "lapacke.h"
 
+#define K 5		// Nombre de valeurs propres
+#define P 0.01	// Precision
+
 struct vector
 {
 	int size;
@@ -74,14 +77,16 @@ double frand_a_b(double a, double b){
 /* Init vector randomly */
 void fill_vector_with_random_values(Vector* v){
 	for(int i = 0; i < v->size; i++){
-		v->data[i] = frand_a_b(1.0, 1000.0);
+		v->data[i] = frand_a_b(1.0, 10.0);
 	}
 }
 
-void fill_matrix_with_random_values(Matrix* m){
+void fill_matrix_with_random_values_symetric(Matrix* m){
 	for(int i = 0; i < m->size[0]; i++){
-		for(int j = 0; j < m->size[1]; j++){
-			m->data[i][j] = frand_a_b(1.0, 1000.0);
+		for(int j = i; j < m->size[1]; j++){
+			double value = frand_a_b(1.0, 10.0);
+			m->data[i][j] = value;
+			m->data[j][i] = value;
 		}
 	}
 }
@@ -120,6 +125,23 @@ void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
     }
 }
 
+void prod_mat_mat(Matrix* A, Matrix* B, Matrix*C){
+    int i, j, k;
+
+    //omp_set_num_threads(thr);
+    #pragma omp parallel shared(A,B,C) private(i,j,k) 
+    {
+        #pragma omp for schedule(static)
+        for (i = 0; i < A->size[0]; i++){
+            for (j = 0; j < B->size[1]; j++){
+                C->data[i][j] = 0;
+                for (k = 0; k < B->size[1]; k++)
+                C->data[i][j] += A->data[i][k]*B->data[k][j];
+            }
+        }
+    }
+}
+
 /* Produit scalaire */
 double prodScalaire(Vector* v1, Vector* v2){
     double res = 0;
@@ -142,11 +164,6 @@ void inversion_matrix(Matrix* m){
 
 	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], &info);
 	printf("LAPACKE_dgetri: %d\n", info);
-	for(int i = 0; i < m->size[0]; i++){
-		for(int j = 0; j < m->size[1]; j++){
-			printf("%0.2f  ", m->data[i][j]);
-		}printf("\n");
-	}
 }
 
 /* Etape 4 de l'algorithme */
@@ -157,13 +174,12 @@ void step4(Vector* C, Matrix* A, Vector* y0, int m, Vector* V[m]){
 	y1 = init_vector(y0->size);
 	prod_mat_vect(A, y0, y1);
 
-	for(int i = 1; i <= m-1; i++){
+	for(int i = 1; i < m-1; i++){
 		C->data[2*i-1] = prodScalaire(y1, y0);
 		C->data[2*i] = prodScalaire(y1, y1);
 		y0 = y1;
 		V[i] = y0;
 		prod_mat_vect(A, y0, y1);
-		print_vector(V[i]);
 	}
 	C->data[2*m-1] = prodScalaire(y1, y0);
 }
@@ -178,9 +194,18 @@ void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
 	}
 }
 
+void step5(int m, Matrix* Xm, Matrix* Vm, Vector* y[m], Vector* val_ritz, Vector* vect_ritz[m]){
+
+	for(int i = 0; i < m; i++){
+		prod_mat_vect(Vm, y[i], vect_ritz[i]); // Calcul de vecteurs de Ritz
+		val_ritz->data[i] = 1; 	// Calcul de valeurs de Ritz
+		// FAIRE LE CALCUL DE VAL_RITZ
+	}
+}
+
 /* Fonction Algorithme itérative PRR */
 void PRR(int m, Vector* x, Matrix* A){
-
+	int N = A->size[0];
 	// Normalisation de x + calcul de y0
 	double norm = vect_norm(x);
 	Vector* y = normalize(x, norm);
@@ -197,7 +222,7 @@ void PRR(int m, Vector* x, Matrix* A){
 
 	Vector* V[m];
 	for(int i = 0; i<m; i++){
-		V[i] = init_vector(y->size);
+		V[i] = init_vector(N);
 	}
 	step4(C, A, y, m, V);
 
@@ -205,37 +230,65 @@ void PRR(int m, Vector* x, Matrix* A){
 	Matrix* B, *Cc;
 	B = init_matrix(m,m);
 	Cc = init_matrix(m,m);
-
 	fill_B_and_C(B, Cc, C);
 
-	inversion_matrix(B);
-	// printf("\n>>>>>>>>>    INVERSE    <<<<<<<<<<\n\n");
+	// Calcul de Xm
 	// print_matrix(B);
+	// printf("Xm\n");
+	// print_matrix(Cc);
+	// printf("Cc\n");
+	// print_vector(C);
+	// printf("C\n");
+	inversion_matrix(B);
+	Matrix* Xm = init_matrix(m, m);
+	prod_mat_mat(B, Cc, Xm);
+	print_matrix(B);
 
-	// free_matrix(B);
-	// free_matrix(Cc);
+	// Calcul des valeurs propres et vecteurs propres de Xm
+	Matrix* Vm = init_matrix(N,m);
+	for(int i = 0; i < N; i++){
+		for(int j = 0; j < m; j++){
+			Vm->data[i][j] = V[j]->data[i];
+		}
+	}
+	Vector* val_ritz = init_vector(m);
+	Vector* vect_ritz[m];
+	for(int i = 0; i<m; i++){
+		vect_ritz[i] = init_vector(N);
+	}
+	
+	step5(m, Xm, Vm, V, val_ritz, vect_ritz);
+
+	// Test pour la projection 
+	for(int i = 0; i < K; i++){
+		if (i+1 <= P) { 		// LE TEST EST FAUX ENCORE
+			PRR(m, vect_ritz[i], A);
+			break;
+		}
+	}
+	print_vector(val_ritz);
+	free_vector(y);
+	free_matrix(B);
+	free_matrix(Cc);
 	free_vector(C);
 }	
 
 
 int main(int argc, char** argv){
 	
-	int m = 10;	// Matrix* B, *Cc;
-	// B = init_matrix(m,m);
-	// Cc = init_matrix(m,m);
+	int m = 2;
+	int N = 100;
 
-	// fill_B_and_C(B, Cc, C);
-
-	// print_vector(C);
 	Vector* v;
 	Matrix* A;
-	v = init_vector(m);
-	A = init_matrix(m, m);
+	v = init_vector(N);
+	A = init_matrix(N, N);
 
 	srand(time(0));
 
-	fill_matrix_with_random_values(A);
+	fill_matrix_with_random_values_symetric(A);
 	fill_vector_with_random_values(v);
+	printf("\n\n");
 
 	PRR(m, v, A);
 
