@@ -52,7 +52,7 @@ void free_matrix(Matrix* m)
 
 void print_vector(Vector* v){
 	for(int i = 0; i < v->size; i++){
-		printf("%0.3f", v->data[i]);
+		printf("%0.3f ", v->data[i]);
 	}
 	printf("\n");
 }
@@ -60,7 +60,7 @@ void print_vector(Vector* v){
 void print_matrix(Matrix* m){
 	for(int i = 0; i < m->size[0]; i++){
 		for(int j = 0; j < m->size[1]; j++){
-			printf("%0.3f", m->data[i][j]);
+			printf("%0.3f ", m->data[i][j]);
 		}
 		printf("\n");
 	}
@@ -74,6 +74,14 @@ double frand_a_b(double a, double b){
 void fill_vector_with_random_values(Vector* v){
 	for(int i = 0; i < v->size; i++){
 		v->data[i] = frand_a_b(1.0, 1000.0);
+	}
+}
+
+void fill_matrix_with_random_values(Matrix* m){
+	for(int i = 0; i < m->size[0]; i++){
+		for(int j = 0; j < m->size[1]; j++){
+			m->data[i][j] = frand_a_b(1.0, 1000.0);
+		}
 	}
 }
 
@@ -135,16 +143,26 @@ void inversion_matrix(Matrix* m){
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(Vector* C, Matrix* A, Vector* y0, Vector* V, int m){
-	V[0] = *y0;
+void step4(Vector* C, Matrix* A, Vector* y0, int m, Vector* V[m]){
+	V[0] = y0;
+	printf("C:\n");
+	print_vector(C);
+	printf("V0:\n");
+	print_vector(V[0]);
+	printf("y0:\n");
+	print_vector(y0);
+	printf("A:\n");
+	print_matrix(A);
 	Vector* y1;
 	y1 = init_vector(y0->size);
 	prod_mat_vect(A, y0, y1);
+	printf("y1:\n");
+	print_vector(y1);
 	for(int i = 1; i <= m-1; i++){
 		C->data[2*i-1] = prodScalaire(y1, y0);
 		C->data[2*i] = prodScalaire(y1, y1);
 		y0 = y1;
-		V[i] = *y0;
+		V[i] = y0;
 		prod_mat_vect(A, y0, y1);
 	}
 	C->data[2*m-1] = prodScalaire(y1, y0);
@@ -174,16 +192,25 @@ void PRR(int m, Vector* x, Matrix* A){
 
 	// Calcul de C1, C2,....C2m-1
 	Vector* C;
-	Vector* V = malloc(sizeof(Vector)*m);
 	C = init_vector(2*m);
 	C->data[0] = C1;
-	step4(C, A, y, V, m);
+
+	Vector* V[m];
+	for(int i = 0; i<m; i++){
+		V[i] = init_vector(y->size);
+	}
+	step4(C, A, y, m, V);
 
 	// Calcul de B^ et C^.
-	Matrix* B, *Cc;
-	B = init_matrix(m,m);
-	C = init_matrix(m,m);
-	fill_B_and_C(B, Cc, C);
+	// Matrix* B, *Cc;
+	// B = init_matrix(m,m);
+	// Cc = init_matrix(m,m);
+
+	// fill_B_and_C(B, Cc, C);
+
+	// print_vector(C);
+	// print_matrix(Cc);
+	// inversion_matrix(B);
 
 	// Calcul de Xm
 
@@ -193,15 +220,26 @@ void PRR(int m, Vector* x, Matrix* A){
 
 int main(int argc, char** argv){
 	
-	int m = 10;
+	int m = 10;	// Matrix* B, *Cc;
+	// B = init_matrix(m,m);
+	// Cc = init_matrix(m,m);
+
+	// fill_B_and_C(B, Cc, C);
+
+	// print_vector(C);
 	Vector* v;
 	Matrix* A;
 	v = init_vector(m);
 	A = init_matrix(m, m);
+
 	srand(time(0));
 
+	fill_matrix_with_random_values(A);
 	fill_vector_with_random_values(v);
+
 	PRR(m, v, A);
+
 	free_vector(v);
+	free_matrix(A);
 	return 0;	
 }
