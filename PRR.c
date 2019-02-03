@@ -155,6 +155,32 @@ double prodScalaire(Vector* v1, Vector* v2){
     return res;
 }
 
+Vector* scalar_mult_vector(double scalar, Vector* v1){
+	Vector* v2 = init_vector(v1->size);
+	for(int i = 0; i < v1->size; i++){
+		v2->data[i] = scalar * v1->data[i];
+	}
+	return v2;
+}
+
+Vector* vector_minus_vector(Vector* v1, Vector* v2){
+	Vector* v3 = init_vector(v1->size);
+	for(int i = 0; i < v1->size; i++){
+		v3->data[i] = v1->data[i] - v2->data[i];
+	}
+	return v3;
+}
+
+double max_in_vector(Vector* v1){
+	double max = 0.0;
+	for(int i = 0; i < v1->size; i++){
+		if(v1->data[i] > max){
+			max = v1->data[i];
+		}
+	}
+	return max;
+}
+
 void inversion_matrix(Matrix* m){
 	int info;
 	Matrix* res = init_matrix(m->size[0], m->size[1]);
@@ -203,6 +229,19 @@ void step5(int m, Matrix* Xm, Matrix* Vm, Vector* y[m], Vector* val_ritz, Vector
 		// Calcul de valeurs de Ritz
 		val_ritz->data[i] = 1; 	
 	}
+}
+
+Vector*  step6(Matrix* A, int i, Vector* ritz_vectors[i], Vector* val_ritz){
+	Vector* residus = init_vector(i);
+	for(int j = 0; j < i ; j++){
+		Vector* v1 = init_vector(ritz_vectors[j]->size);
+		prod_mat_vect(A, ritz_vectors[j], v1);
+		Vector* v2 = scalar_mult_vector(val_ritz->data[j], ritz_vectors[j]);
+
+		
+		residus->data[j] = vect_norm(vector_minus_vector(v1, v2)); 
+	}
+	return residus;
 }
 
 Matrix* convert_vector_array_to_matrix(int m, Vector* y[m]){
@@ -260,17 +299,21 @@ void PRR(int m, Vector* x, Matrix* A){
 	step5(m, Xm, Vm, V, val_ritz, vect_ritz);
 
 	// Test pour la projection ls
-	Vector* residu[m];
-	for(int i = 0; i < m; i++){
-		residu[i] = 1;
-	}
-
-	for(int i = 0; i < K; i++){
-		if (i+1 <= P) { 		// LE TEST EST FAUX ENCORE
-			PRR(m, vect_ritz[i], A);
-			break;
+	Vector* residus = step6(A, m, vect_ritz, val_ritz);
+	double max = max_in_vector(residus); 
+	if(max_in_vector(residus) <= P){
+		// C EST BON
+	}else{
+		// ON RESTART
+		int i;
+		for(i=0; i< residus->size; i++){
+			if(residus->data[i] == max){
+				break;
+			}
 		}
+		PRR(m, vect_ritz[i], A);
 	}
+	
 	print_vector(val_ritz);
 	free_vector(y);
 	free_matrix(B);
