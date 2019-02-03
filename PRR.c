@@ -8,6 +8,21 @@
 #define K 5		// Nombre de valeurs propres
 #define P 0.01	// Precision
 
+/* DGEEV prototype */
+/*
+   Description.
+   ============
+
+   The routine computes for an n-by-n real nonsymmetric matrix A, the
+   eigenvalues and, optionally, the left and/or right eigenvectors. The right
+   eigenvector v(j) of A satisfies
+
+   A*v(j)= lambda(j)*v(j)
+*/
+extern void dgeev( char* jobvl, char* jobvr, int* n, double* a,
+                int* lda, double* wr, double* wi, double* vl, int* ldvl,
+                double* vr, int* ldvr, double* work, int* lwork, int* info );
+
 struct vector
 {
 	int size;
@@ -156,7 +171,7 @@ double prodScalaire(Vector* v1, Vector* v2){
 }
 
 void inversion_matrix(Matrix* m){
-	int info;
+	int info, i2;
 	Matrix* res = init_matrix(m->size[0], m->size[1]);
 
 	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], &info);
@@ -194,14 +209,38 @@ void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
 	}
 }
 
-void step5(int m, Matrix* Xm, Matrix* Vm, Vector* y[m], Vector* val_ritz, Vector* vect_ritz[m]){
+/**
+*
+* @param	wr		Array with eigenvalues
+* @param 	vr		Array 1D with all eigenvectors of size m
+*/
+void compute_eigenvalues_and_vectors(int m, Matrix* mat, double* wr, double* vr){
+    int info;
+	double wi[m], vl[m];
+
+    /* Executable statements */
+    printf( " DGEEV Example Program Results\n" );
+    /* Solve eigenproblem */
+    info = LAPACKE_dgeev(LAPACK_ROW_MAJOR, 'N', 'V', m, mat->data[0], m, wr, wi, vl, m, vr, m);
+    /* Check for convergence */
+    if( info > 0 ) {
+        printf( "The algorithm failed to compute eigenvalues.\n" );
+        exit( 1 );
+    }
+}
+
+void step5(int m, Matrix* Xm, Matrix* Vm, Vector* val_ritz, Vector* vect_ritz[m]){
 
 	int i_max = 0;
+	Vector* y = init_vector(m);
+	Vector* eigen_vect = init_vector(m*m);
+
+	// Compute eigenvalues and eigenvectors of Xm (eigenvalues == ritz value)
+	compute_eigenvalues_and_vectors(m, Xm, val_ritz->data, eigen_vect->data);
+	// Compute vectors of ritz
 	for(int i = 0; i < m; i++){
-		// Calcul de vecteurs de Ritz
-		prod_mat_vect(Vm, y[i], vect_ritz[i]); 
-		// Calcul de valeurs de Ritz
-		val_ritz->data[i] = 1; 	
+		vect_ritz[i]->data = &(eigen_vect->data[i*m]);
+		prod_mat_vect(Vm, val_ritz, vect_ritz[i]); 
 	}
 }
 
@@ -257,21 +296,22 @@ void PRR(int m, Vector* x, Matrix* A){
 	for(int i = 0; i<m; i++){
 		vect_ritz[i] = init_vector(N);
 	}
-	step5(m, Xm, Vm, V, val_ritz, vect_ritz);
+	step5(m, Xm, Vm, val_ritz, vect_ritz);
 
 	// Test pour la projection ls
-	Vector* residu[m];
-	for(int i = 0; i < m; i++){
-		residu[i] = 1;
-	}
+	// Vector* residu[m];
+	// for(int i = 0; i < m; i++){
+	// 	residu[i] = 1;
+	// }
 
-	for(int i = 0; i < K; i++){
-		if (i+1 <= P) { 		// LE TEST EST FAUX ENCORE
-			PRR(m, vect_ritz[i], A);
-			break;
-		}
-	}
-	print_vector(val_ritz);
+	// for(int i = 0; i < K; i++){
+	// 	if (i+1 <= P) { 		// LE TEST EST FAUX ENCORE
+	// 		PRR(m, vect_ritz[i], A);
+	// 		break;
+	// 	}
+	// }
+	
+	//print_vector(val_ritz);
 	free_vector(y);
 	free_matrix(B);
 	free_matrix(Cc);
@@ -281,7 +321,7 @@ void PRR(int m, Vector* x, Matrix* A){
 
 int main(int argc, char** argv){
 	
-	int m = 2;
+	int m = 3;
 	int N = 100;
 
 	Vector* v;
