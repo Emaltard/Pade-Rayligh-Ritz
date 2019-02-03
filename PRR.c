@@ -196,11 +196,23 @@ void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
 
 void step5(int m, Matrix* Xm, Matrix* Vm, Vector* y[m], Vector* val_ritz, Vector* vect_ritz[m]){
 
+	int i_max = 0;
 	for(int i = 0; i < m; i++){
-		prod_mat_vect(Vm, y[i], vect_ritz[i]); // Calcul de vecteurs de Ritz
-		val_ritz->data[i] = 1; 	// Calcul de valeurs de Ritz
-		// FAIRE LE CALCUL DE VAL_RITZ
+		// Calcul de vecteurs de Ritz
+		prod_mat_vect(Vm, y[i], vect_ritz[i]); 
+		// Calcul de valeurs de Ritz
+		val_ritz->data[i] = 1; 	
 	}
+}
+
+Matrix* convert_vector_array_to_matrix(int m, Vector* y[m]){
+	Matrix* res = init_matrix(y[0]->size, m);
+	for(int i = 0; i < res->size[0]; i++){
+		for(int j = 0; j < m; j++){
+			res->data[i][j] = y[j]->data[i];
+		}
+	}
+	return res;
 }
 
 /* Fonction Algorithme itérative PRR */
@@ -233,33 +245,26 @@ void PRR(int m, Vector* x, Matrix* A){
 	fill_B_and_C(B, Cc, C);
 
 	// Calcul de Xm
-	// print_matrix(B);
-	// printf("Xm\n");
-	// print_matrix(Cc);
-	// printf("Cc\n");
-	// print_vector(C);
-	// printf("C\n");
 	inversion_matrix(B);
 	Matrix* Xm = init_matrix(m, m);
 	prod_mat_mat(B, Cc, Xm);
 	print_matrix(B);
 
 	// Calcul des valeurs propres et vecteurs propres de Xm
-	Matrix* Vm = init_matrix(N,m);
-	for(int i = 0; i < N; i++){
-		for(int j = 0; j < m; j++){
-			Vm->data[i][j] = V[j]->data[i];
-		}
-	}
+	Matrix* Vm = convert_vector_array_to_matrix(m, V);
 	Vector* val_ritz = init_vector(m);
 	Vector* vect_ritz[m];
 	for(int i = 0; i<m; i++){
 		vect_ritz[i] = init_vector(N);
 	}
-	
 	step5(m, Xm, Vm, V, val_ritz, vect_ritz);
 
-	// Test pour la projection 
+	// Test pour la projection ls
+	Vector* residu[m];
+	for(int i = 0; i < m; i++){
+		residu[i] = 1;
+	}
+
 	for(int i = 0; i < K; i++){
 		if (i+1 <= P) { 		// LE TEST EST FAUX ENCORE
 			PRR(m, vect_ritz[i], A);
