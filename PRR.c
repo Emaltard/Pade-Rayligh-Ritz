@@ -7,6 +7,7 @@
 
 #define K 5		// Nombre de valeurs propres
 #define P 0.01	// Precision
+#define thr 4	// Nombre de Threads
 
 /* DGEEV prototype */
 /*
@@ -109,8 +110,12 @@ void fill_matrix_with_random_values_symetric(Matrix* m){
 /* Calcul de la norme d'un vecteur */
 double vect_norm(Vector* x){
 	double result = 0;
-	for(int i = 0; i < x->size; i ++){
-		result = x->data[i]*x->data[i];
+	int i;
+
+	//omp_set_num_threads(thr);
+    #pragma omp parallel for private(i)
+	for(i = 0; i < x->size; i ++){
+		result += x->data[i]*x->data[i];
 	}
 
 	return sqrt(result);
@@ -118,9 +123,13 @@ double vect_norm(Vector* x){
 
 /* Normalisation d'un vecteur */
 Vector* normalize(Vector* x, double norm){
+	int i;
 	Vector* v;
 	v = init_vector(x->size);
-	for(int i = 0; i < x->size; i++){
+
+	//omp_set_num_threads(thr);
+    #pragma omp parallel for private(i)
+	for(i = 0; i < x->size; i++){
 		v->data[i] = x->data[i]/norm;
 	}
 	return v;
@@ -172,7 +181,10 @@ double prodScalaire(Vector* v1, Vector* v2){
 
 Vector* scalar_mult_vector(double scalar, Vector* v1){
 	Vector* v2 = init_vector(v1->size);
-	for(int i = 0; i < v1->size; i++){
+	int i;
+	//omp_set_num_threads(thr);
+    #pragma omp parallel for private(i)
+	for(i = 0; i < v1->size; i++){
 		v2->data[i] = scalar * v1->data[i];
 	}
 	return v2;
@@ -226,9 +238,12 @@ void step4(Vector* C, Matrix* A, Vector* y0, int m, Vector* V[m]){
 }
 
 void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
-	int s = V->size/2;
-	for(int i = 0; i < s; i++){
-		for(int j = 0; j < s; j++){
+	int i, j, s = V->size/2;
+
+	//omp_set_num_threads(thr);
+    #pragma omp parallel shared(B,C) private(i,j) 
+    for(i = 0; i < s; i++){
+		for(j = 0; j < s; j++){
 			B->data[i][j] = V->data[i+j];
 			C->data[i][j] = V->data[i+j+1];
 		}
