@@ -12,4 +12,4 @@ clean:
 	@rm -rf *.o
 
 run: 
-	mpirun -n 1 ./$(EXEC) bcsstm01.mtx
+	mpirun -n 1 ./$(EXEC) mm bcsstm01.mtx

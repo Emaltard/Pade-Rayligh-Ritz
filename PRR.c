@@ -1,5 +1,6 @@
 // The Padé-Rayligh-Ritz method
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
@@ -358,66 +359,107 @@ Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 	return res;
 }
 
-void extract_matrix_from_mm_file(Matrix* A, int argc, char **argv){
+Matrix* extract_matrix_from_mm_file(FILE *f)
+{
 	int ret_code;
-    MM_typecode matcode;
-    FILE *f;
-    int M, N, nz;   
-    int i, I_index, J_index;
-    double val;
+	MM_typecode matcode;
+	int M, N, nz;
+	int i, I_index, J_index;
+	double val;
 
-    if (argc < 2)
+	if (mm_read_banner(f, &matcode) != 0)
 	{
-		fprintf(stderr, "Usage: %s [martix-market-filename]\n", argv[0]);
+		printf("Could not process Matrix Market banner.\n");
 		exit(1);
 	}
-    else    
-    { 
-        if ((f = fopen(argv[1], "r")) == NULL) 
-            exit(1);
-    }
 
-    if (mm_read_banner(f, &matcode) != 0)
-    {
-        printf("Could not process Matrix Market banner.\n");
-        exit(1);
-    }
+	if (mm_is_complex(matcode) && mm_is_matrix(matcode) &&
+		mm_is_sparse(matcode))
+	{
+		printf("Sorry, this application does not support ");
+		printf("Market Market type: [%s]\n", mm_typecode_to_str(matcode));
+		exit(1);
+	}
 
+	if ((ret_code = mm_read_mtx_crd_size(f, &M, &N, &nz)) != 0)
+		exit(1);
 
-    /*  This is how one can screen matrix types if their application */
-    /*  only supports a subset of the Matrix Market data types.      */
-
-    if (mm_is_complex(matcode) && mm_is_matrix(matcode) && 
-            mm_is_sparse(matcode) )
-    {
-        printf("Sorry, this application does not support ");
-        printf("Market Market type: [%s]\n", mm_typecode_to_str(matcode));
-        exit(1);
-    }
-
-    /* find out size of sparse matrix .... */
-
-    if ((ret_code = mm_read_mtx_crd_size(f, &M, &N, &nz)) !=0)
-        exit(1);
-
-	if(M != N){
+	if (M != N)
+	{
 		printf("Matrix must be symetric.\n");
 		exit(1);
 	}
 
-    /* NOTE: when reading in doubles, ANSI C requires the use of the "l"  */
-    /*   specifier as in "%lg", "%lf", "%le", otherwise errors will occur */
-    /*  (ANSI C X3.159-1989, Sec. 4.9.6.2, p. 136 lines 13-15)            */
+	Matrix* A = init_matrix(M, N);
 
-    for (i=0; i<nz; i++)
-    {
-        fscanf(f, "%d %d %lf\n", &I_index, &J_index, &val);
-        I_index--;  /* adjust from 1-based to 0-based */
-        J_index--;
+	for (i = 0; i < nz; i++)
+	{
+		fscanf(f, "%d %d %lf\n", &I_index, &J_index, &val);
+		I_index--; /* adjust from 1-based to 0-based */
+		J_index--;
 		A->data[I_index][J_index] = val;
-    }
+	}
 
-    if (f !=stdin) fclose(f);
+	return A;
+}
+
+Matrix* extract_matrix_from_txt_file(FILE *f)
+{
+	int M, N;
+	double val;
+
+	fscanf(f, "%d %d\n", &M, &N);
+
+	if (M != N)
+	{
+		printf("Matrix must be symetric.\n");
+		exit(1);
+	}
+
+	Matrix* A = init_matrix(M, N);
+
+	for (int i = 0; i < M; i++)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			fscanf(f, "%lf ", &val);
+			A->data[i][j] = val;
+		}
+		fscanf(f, "\n");
+	}
+
+	return A;
+}
+
+Matrix* extract_matrix_from_file(int argc, char **argv)
+{
+	if (argc < 3)
+	{
+		fprintf(stderr, "Usage: %s [file-type] [filename]\n", argv[0]);
+	}
+	FILE *f;
+	if ((f = fopen(argv[2], "r")) == NULL)
+		exit(1);
+
+	Matrix* A;
+
+	if (strcmp(argv[1], "mm") == 0)
+	{
+		A = extract_matrix_from_mm_file(f);
+	}
+	else if (strcmp(argv[1], "txt") == 0)
+	{
+		A = extract_matrix_from_txt_file(f);
+	}else{
+		fprintf(stderr, "Usage: %s [file-type: mm or txt] [filename]\n", argv[0]);
+		exit(1);
+	}
+
+	printf("Matrix size: %d, %d\n", A->size[0], A->size[1]);
+
+	fclose(f);
+
+	return A;
 }
 
 /* Fonction Algorithme itérative PRR */
@@ -503,16 +545,19 @@ int main(int argc, char **argv)
 
 	Vector *v;
 	Matrix *A;
-	v = init_vector(N);
-	A = init_matrix(N, N);
+	// v = init_vector(N);
+	// A = init_matrix(N, N);
 
-	extract_matrix_from_mm_file(A, argc, argv);
+	A = extract_matrix_from_file(argc, argv);
 
-	// print_matrix(A);
+	print_matrix(A);
+
+	v = init_vector(A->size[0]);
 
 	srand(time(0));
 
 	// fill_matrix_with_random_values_symetric(A);
+	
 	fill_vector_with_random_values(v);
 	printf("\n\n");
 
@@ -525,7 +570,7 @@ int main(int argc, char **argv)
 	MPI_Barrier(MPI_COMM_WORLD);
 	start = MPI_Wtime();
 
-		PRR(m, v, A);
+	PRR(m, v, A);
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	end = MPI_Wtime();
