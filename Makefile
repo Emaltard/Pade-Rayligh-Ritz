@@ -1,6 +1,6 @@
-CC = gcc
+CC = mpicc
 CFLAGS = -W -Wall
-LDFLAGS = -llapacke -lm
+LDFLAGS = -fopenmp -llapacke -lm 
 EXEC = PRR
 
 all: $(EXEC)

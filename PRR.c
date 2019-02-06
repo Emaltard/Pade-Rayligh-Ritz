@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <omp.h>
+#include <mpi.h>
 #include "lapacke.h"
 
 #define K 5		// Nombre de valeurs propres
@@ -112,7 +114,7 @@ double vect_norm(Vector* x){
 	double result = 0;
 	int i;
 
-	//omp_set_num_threads(thr);
+	omp_set_num_threads(thr);
     #pragma omp parallel for private(i)
 	for(i = 0; i < x->size; i ++){
 		result += x->data[i]*x->data[i];
@@ -127,7 +129,7 @@ Vector* normalize(Vector* x, double norm){
 	Vector* v;
 	v = init_vector(x->size);
 
-	//omp_set_num_threads(thr);
+	omp_set_num_threads(thr);
     #pragma omp parallel for private(i)
 	for(i = 0; i < x->size; i++){
 		v->data[i] = x->data[i]/norm;
@@ -139,7 +141,7 @@ Vector* normalize(Vector* x, double norm){
 void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
     int i, j;
     
-    //omp_set_num_threads(4);
+    omp_set_num_threads(thr);
     #pragma omp parallel for private(i, j)
     for ( i = 0; i < b->size; i++){
         c->data[i] = 0;
@@ -152,7 +154,7 @@ void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
 void prod_mat_mat(Matrix* A, Matrix* B, Matrix*C){
     int i, j, k;
 
-    //omp_set_num_threads(thr);
+    omp_set_num_threads(thr);
     #pragma omp parallel shared(A,B,C) private(i,j,k) 
     {
         #pragma omp for schedule(static)
@@ -182,7 +184,7 @@ double prodScalaire(Vector* v1, Vector* v2){
 Vector* scalar_mult_vector(double scalar, Vector* v1){
 	Vector* v2 = init_vector(v1->size);
 	int i;
-	//omp_set_num_threads(thr);
+	omp_set_num_threads(thr);
     #pragma omp parallel for private(i)
 	for(i = 0; i < v1->size; i++){
 		v2->data[i] = scalar * v1->data[i];
@@ -240,7 +242,7 @@ void step4(Vector* C, Matrix* A, Vector* y0, int m, Vector* V[m]){
 void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
 	int i, j, s = V->size/2;
 
-	//omp_set_num_threads(thr);
+	omp_set_num_threads(thr);
     #pragma omp parallel shared(B,C) private(i,j) 
     for(i = 0; i < s; i++){
 		for(j = 0; j < s; j++){
@@ -251,7 +253,9 @@ void fill_B_and_C(Matrix* B, Matrix* C, Vector* V){
 }
 
 /**
-*
+* Function to compute eigenvalues and eigenvectors with LAPACK functions
+* @param 	m		Integer which represent the size of the matrix mat
+* @param	mat		Matrix mat where we want to eigenvalues and eigenvectors
 * @param	wr		Array with eigenvalues
 * @param 	vr		Array 1D with all eigenvectors of size m
 */
@@ -278,8 +282,12 @@ void step5(int m, Matrix* Xm, Matrix* Vm, Vector* val_ritz, Vector* vect_ritz[m]
 
 	// Compute eigenvalues and eigenvectors of Xm (eigenvalues == ritz value)
 	compute_eigenvalues_and_vectors(m, Xm, val_ritz->data, eigen_vect->data);
+	
 	// Compute vectors of ritz
-	for(int i = 0; i < m; i++){
+	int i;
+	omp_set_num_threads(thr);
+    #pragma omp parallel private(i) 
+    for(i = 0; i < m; i++){
 		vect_ritz[i]->data = &(eigen_vect->data[i*m]);
 		prod_mat_vect(Vm, val_ritz, vect_ritz[i]); 
 	}
@@ -377,6 +385,9 @@ void PRR(int m, Vector* x, Matrix* A){
 
 
 int main(int argc, char** argv){
+
+	MPI_Init(&argc, &argv);
+	int size; MPI_Comm_size(MPI_COMM_WORLD, &size);
 	
 	int m = 3;
 	int N = 100;
@@ -396,5 +407,7 @@ int main(int argc, char** argv){
 
 	free_vector(v);
 	free_matrix(A);
+
+	MPI_Finalize();
 	return 0;	
 }
