@@ -550,7 +550,7 @@ int main(int argc, char **argv)
 
 	A = extract_matrix_from_file(argc, argv);
 
-	print_matrix(A);
+	// print_matrix(A);
 
 	v = init_vector(A->size[0]);
 
