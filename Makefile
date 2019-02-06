@@ -1,6 +1,6 @@
 CC = mpicc
 CFLAGS = -W -Wall
-LDFLAGS = -llapacke -lm
+LDFLAGS = -fopenmp -llapacke -lm 
 EXEC = PRR
 
 all: $(EXEC)
@@ -10,6 +10,7 @@ PRR: PRR.c mmio.c
 
 clean:
 	@rm -rf *.o
+	@rm -f PRR
 
 run: 
 	mpirun -n 1 ./$(EXEC) mm bcsstm01.mtx
