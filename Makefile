@@ -1,4 +1,4 @@
-CC = gcc
+CC = mpicc
 CFLAGS = -W -Wall
 LDFLAGS = -llapacke -lm
 EXEC = PRR
@@ -12,4 +12,4 @@ clean:
 	@rm -rf *.o
 
 run: 
-	./$(EXEC)
+	mpirun -n 1 ./$(EXEC)
