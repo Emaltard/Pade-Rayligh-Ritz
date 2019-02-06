@@ -12,4 +12,4 @@ clean:
 	@rm -rf *.o
 
 run: 
-	./$(EXEC)
+	mpirun -n 1 ./$(EXEC)
