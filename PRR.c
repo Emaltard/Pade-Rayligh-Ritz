@@ -6,6 +6,7 @@
 #include <omp.h>
 #include <mpi.h>
 #include "lapacke.h"
+#include "mmio.h"
 
 #define K 5	// Nombre de valeurs propres
 #define P 0.01 // Precision
@@ -356,75 +357,196 @@ Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 	return res;
 }
 
+void extract_matrix_from_mm_file(Matrix* A, int argc, char **argv){
+	int ret_code;
+    MM_typecode matcode;
+    FILE *f;
+    int M, N, nz;   
+    int i, I_index, J_index;
+    double val;
+
+    if (argc < 2)
+	{
+		fprintf(stderr, "Usage: %s [martix-market-filename]\n", argv[0]);
+		exit(1);
+	}
+    else    
+    { 
+        if ((f = fopen(argv[1], "r")) == NULL) 
+            exit(1);
+    }
+
+    if (mm_read_banner(f, &matcode) != 0)
+    {
+        printf("Could not process Matrix Market banner.\n");
+        exit(1);
+    }
+
+
+    /*  This is how one can screen matrix types if their application */
+    /*  only supports a subset of the Matrix Market data types.      */
+
+    if (mm_is_complex(matcode) && mm_is_matrix(matcode) && 
+            mm_is_sparse(matcode) )
+    {
+        printf("Sorry, this application does not support ");
+        printf("Market Market type: [%s]\n", mm_typecode_to_str(matcode));
+        exit(1);
+    }
+
+    /* find out size of sparse matrix .... */
+
+    if ((ret_code = mm_read_mtx_crd_size(f, &M, &N, &nz)) !=0)
+        exit(1);
+
+	if(M != N){
+		printf("Matrix must be symetric.\n");
+		exit(1);
+	}
+
+    /* NOTE: when reading in doubles, ANSI C requires the use of the "l"  */
+    /*   specifier as in "%lg", "%lf", "%le", otherwise errors will occur */
+    /*  (ANSI C X3.159-1989, Sec. 4.9.6.2, p. 136 lines 13-15)            */
+
+    for (i=0; i<nz; i++)
+    {
+        fscanf(f, "%d %d %lf\n", &I_index, &J_index, &val);
+        I_index--;  /* adjust from 1-based to 0-based */
+        J_index--;
+		A->data[I_index][J_index] = val;
+    }
+
+    if (f !=stdin) fclose(f);
+}
+////// MPI ///////
+Matrix* split_matrix(Matrix* A){
+	int sub_row, sub_size, start;
+	int comm_size, rank;
+	MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	sub_row = A->size[0]/comm_size;
+	sub_size = sub_row * A->size[1];
+	start = rank * sub_row;
+
+	// The matrix is ​​subdivided on each processor
+    Matrix* sub_mat = init_matrix(sub_row, A->size[1]);
+	MPI_Scatter(&(A->data[0][0]), sub_size , MPI_DOUBLE, &(sub_mat->data[0][0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	return sub_mat;
+}
+
+void reduce_matrix(Matrix* A, Matrix* sub_mat){
+	int sub_row, sub_size, start;
+	int comm_size, rank;
+	MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	sub_row = A->size[0]/comm_size;
+	sub_size = sub_row * A->size[1];
+	start = rank * sub_row;
+
+	MPI_Gather(&(sub_mat->data[0][0]), sub_size, MPI_DOUBLE, &(A->data[0][0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+}
+
+
+
+/////// END MPI ///////:
+
+
+
+
 /* Fonction Algorithme itérative PRR */
 void PRR(int m, Vector *x, Matrix *A)
-{
-	int N = A->size[0];
-	// Normalisation de x + calcul de y0
-	double norm = vect_norm(x);
-	Vector *y = normalize(x, norm);
+{	
+	// Size and rank of MPI
+	int size, rank;
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	// C0 = || y0 ||^2
-	double C1;
-	norm = vect_norm(y);
-	C1 = norm * norm;
+	if (rank == 0){ // RANK MASTER	
+		// STEP 1
+		int N = A->size[0];
+		// Normalisation de x + calcul de y0
+		double norm = vect_norm(x);
+		Vector *y = normalize(x, norm);
 
-	// Calcul de C1, C2,....C2m-1
-	Vector *C;
-	C = init_vector(2 * m);
-	C->data[0] = C1;
+		// C0 = || y0 ||^2
+		double C1;
+		norm = vect_norm(y);
+		C1 = norm * norm;
 
-	Vector *V[m];
-	for (int i = 0; i < m; i++)
-	{
-		V[i] = init_vector(N);
-	}
-	step4(C, A, y, m, V);
+		// Calcul de C1, C2,....C2m-1
+		Vector *C;
+		C = init_vector(2 * m);
+		C->data[0] = C1;
 
-	// Calcul de B^ et C^.
-	Matrix *B, *Cc;
-	B = init_matrix(m, m);
-	Cc = init_matrix(m, m);
-	fill_B_and_C(B, Cc, C);
-
-	// Calcul de Xm
-	inversion_matrix(B);
-	Matrix *Xm = init_matrix(m, m);
-	prod_mat_mat(B, Cc, Xm);
-	print_matrix(B);
-
-	// Calcul des valeurs propres et vecteurs propres de Xm
-	Matrix *Vm = convert_vector_array_to_matrix(m, V);
-	Vector *val_ritz = init_vector(m);
-	Vector *vect_ritz[m];
-	for (int i = 0; i < m; i++)
-	{
-		vect_ritz[i] = init_vector(N);
-	}
-	step5(m, Xm, Vm, val_ritz, vect_ritz);
-
-	// Test pour la projection ls
-	Vector *residus = step6(A, m, vect_ritz, val_ritz);
-	double max = max_in_vector(residus);
-	if (max_in_vector(residus) > P)
-	{
-		// ON RESTART
-		int i;
-		for (i = 0; i < residus->size; i++)
+		Vector *V[m];
+		for (int i = 0; i < m; i++)
 		{
-			if (residus->data[i] == max)
-			{
-				break;
-			}
+			V[i] = init_vector(N);
 		}
-		PRR(m, vect_ritz[i], A);
-	}
 
-	print_vector(val_ritz);
-	free_vector(y);
-	free_matrix(B);
-	free_matrix(Cc);
-	free_vector(C);
+		// SPLIT 1
+		step4(C, A, y, m, V);
+
+		// GATHER 1
+
+		// Calcul de B^ et C^.
+		Matrix *B, *Cc;
+		B = init_matrix(m, m);
+		Cc = init_matrix(m, m);
+		fill_B_and_C(B, Cc, C);
+
+		// Calcul de Xm
+		inversion_matrix(B);
+		Matrix *Xm = init_matrix(m, m);
+
+		// SPLIT 2
+		prod_mat_mat(B, Cc, Xm);
+
+		// GATHER 2
+		print_matrix(B);
+
+		// Calcul des valeurs propres et vecteurs propres de Xm
+		Matrix *Vm = convert_vector_array_to_matrix(m, V);
+		Vector *val_ritz = init_vector(m);
+		Vector *vect_ritz[m];
+		for (int i = 0; i < m; i++)
+		{
+			vect_ritz[i] = init_vector(N);
+		}
+
+		// SPLIT 3
+		step5(m, Xm, Vm, val_ritz, vect_ritz);
+
+		// GATHER 3
+
+		// Test pour la projection ls
+		Vector *residus = step6(A, m, vect_ritz, val_ritz);
+		double max = max_in_vector(residus);
+		if (max_in_vector(residus) > P)
+		{
+			// ON RESTART
+			int i;
+			for (i = 0; i < residus->size; i++)
+			{
+				if (residus->data[i] == max)
+				{
+					break;
+				}
+			}
+			PRR(m, vect_ritz[i], A);
+		}
+
+		print_vector(val_ritz);
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
+	}
+	else{
+
+	}
 }
 
 int main(int argc, char **argv)
@@ -440,9 +562,13 @@ int main(int argc, char **argv)
 	v = init_vector(N);
 	A = init_matrix(N, N);
 
+	extract_matrix_from_mm_file(A, argc, argv);
+
+	// print_matrix(A);
+
 	srand(time(0));
 
-	fill_matrix_with_random_values_symetric(A);
+	// fill_matrix_with_random_values_symetric(A);
 	fill_vector_with_random_values(v);
 	printf("\n\n");
 
