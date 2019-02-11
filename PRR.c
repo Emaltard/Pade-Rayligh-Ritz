@@ -10,7 +10,7 @@
 #include "mmio.h"
 
 #define K 5	// Nombre de valeurs propres
-#define P 0.00001 // Precision
+#define P 0.1 // Precision
 #define thr 4  // Nombre de Threads
 
 /* DGEEV prototype */
@@ -94,7 +94,7 @@ void print_matrix(Matrix *m)
 		{
 			printf("%0.3f ", m->data[i][j]);
 		}
-		printf("\n");
+		printf("\n\n");
 	}
 }
 
@@ -211,18 +211,26 @@ void prod_mat_vect_mpi(Matrix* a, Vector* b, Vector* c){
 	// Le rang Master envoi aux autre le vecteur B
 	if (rank == 0){
 		for(i = 1; i < size; i++){
+			MPI_Send(&(b->size), 1, MPI_INT, i, 200, MPI_COMM_WORLD);
 			MPI_Send(&(b->data[0]), b->size, MPI_DOUBLE, i, 100, MPI_COMM_WORLD);
 		}
 	}
 	else {
+		int b_size = 0; 
+		MPI_Recv(&b_size, 1, MPI_INT, 0, 200, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		b = init_vector(b_size);
 		MPI_Recv(&(b->data[0]), b->size, MPI_DOUBLE, 0, 100, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
-	
+	MPI_Barrier(MPI_COMM_WORLD);
+
 	Matrix* sub_a = split_matrix(a);
 	Vector* sub_c = init_vector(sub_a->size[0]);
 	prod_mat_vect(sub_a, b, sub_c);
 	gather_vector(c, sub_c);
 	free_matrix(sub_a);
+	if(rank != 0){
+		free_vector(b);
+	}
 }
 
 void prod_mat_mat(Matrix* A, Matrix* B, Matrix*C){
@@ -299,27 +307,28 @@ void inversion_matrix(Matrix *m)
 	Matrix *res = init_matrix(m->size[0], m->size[1]);
 
 	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], &info);
-	printf("LAPACKE_dgetrf: %d\n", info);
+	//printf("LAPACKE_dgetrf: %d\n", info);
 
 	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], &info);
-	printf("LAPACKE_dgetri: %d\n", info);
+	//printf("LAPACKE_dgetri: %d\n", info);
 }
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m])
+void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
 {
 	V[0] = y0;
 	Vector *y1;
 	y1 = init_vector(y0->size);
-	prod_mat_vect(A, y0, y1);
+	prod_mat_vect_mpi(A, y0, y1);
 
 	for (int i = 1; i < m - 1; i++)
-	{
-		C->data[2 * i - 1] = prodScalaire(y1, y0);
-		C->data[2 * i] = prodScalaire(y1, y1);
-		y0 = y1;
-		V[i] = y0;
+	{	if(rank == 0){
+			C->data[2 * i - 1] = prodScalaire(y1, y0);
+			C->data[2 * i] = prodScalaire(y1, y1);
+			y0 = y1;
+			V[i] = y0;
+		}
 		//prod_mat_vect(A, y0, y1);
 		prod_mat_vect_mpi(A, y0, y1);
 	}
@@ -352,8 +361,6 @@ void compute_eigenvalues_and_vectors(int m, Matrix *mat, double *wr, double *vr)
 	int info;
 	double wi[m], vl[m];
 
-	/* Executable statements */
-	printf(" DGEEV eigenvalues and eigenvectors\n");
 	/* Solve eigenproblem */
 	info = LAPACKE_dgeev(LAPACK_ROW_MAJOR, 'N', 'V', m, mat->data[0], m, wr, wi, vl, m, vr, m);
 	/* Check for convergence */
@@ -542,36 +549,37 @@ void PRR(int m, Vector *x, Matrix *A)
 	Vector *C;
 	Vector *V[m];
 	C = init_vector(2 * m);
-	if (rank == 0)	C->data[0] = C1;
+	if (rank == 0)	{
+		C->data[0] = C1;
+	}
 
 	for (int i = 0; i < m; i++) {
 		V[i] = init_vector(N);
 	}
 
-	
-	// SPLIT 1
-	step4(C, A, y, m, V);
-	// GATHER 1
+	step4(C, A, y, m, V, rank);
 
 	// Calcul de B^ et C^.
-	Matrix *B, *Cc, *Xm;
+	Matrix *B, *Cc, *Xm, *Vm;
 	B = init_matrix(m, m);
 	Cc = init_matrix(m, m);
 	Xm = init_matrix(m, m);
+	printf("VECTOR C \n");
+	print_vector(C);
 	
 	if (rank == 0) {
 		fill_B_and_C(B, Cc, C);	
 		// Calcul de Xm
 		inversion_matrix(B);
+		printf("\nINVERSION :\n");
+		print_matrix(B);
+		printf("\n");
+		prod_mat_mat(B, Cc, Xm);
+		
+		// Calcul des valeurs propres et vecteurs propres de Xm
+		Vm = convert_vector_array_to_matrix(m, V);
 	}
 
-	// SPLIT 2
-	prod_mat_mat(B, Cc, Xm);
-	// GATHER 2
-	if (rank == 0) print_matrix(B);
-
-	// Calcul des valeurs propres et vecteurs propres de Xm
-	Matrix *Vm = convert_vector_array_to_matrix(m, V);
 	Vector *val_ritz = init_vector(m);
 	Vector *vect_ritz[m];
 	for (int i = 0; i < m; i++)
@@ -579,9 +587,7 @@ void PRR(int m, Vector *x, Matrix *A)
 		vect_ritz[i] = init_vector(N);
 	}
 
-	// SPLIT 3
-	step5(m, Xm, Vm, val_ritz, vect_ritz);
-	// GATHER 3
+	if (rank == 0) step5(m, Xm, Vm, val_ritz, vect_ritz);
 
 	// Test pour la projection ls
 	Vector *residus = step6(A, m, vect_ritz, val_ritz);
@@ -597,13 +603,23 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
+		// FREE MEMORY
+		print_vector(val_ritz);
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
+		// RESTART PROJECTION
 		PRR(m, vect_ritz[i], A);
 	}
-	print_vector(val_ritz);
-	free_vector(y);
-	free_matrix(B);
-	free_matrix(Cc);
-	free_vector(C);
+	else {
+		// FREE MEMORY 
+		print_vector(val_ritz);
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
+	}
 }
 
 int main(int argc, char **argv)
