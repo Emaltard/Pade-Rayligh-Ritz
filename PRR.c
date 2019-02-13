@@ -12,6 +12,7 @@
 #define K 5	// Nombre de valeurs propres
 #define P 0.00001 // Precision
 #define thr 4  // Nombre de Threads
+#define MAX_ITER 1
 
 /* DGEEV prototype */
 /*
@@ -295,32 +296,27 @@ double max_in_vector(Vector *v1)
 ////////////////////////////////////////////////////////////
 void inversion_matrix(Matrix *m)
 {
-	int info, i2;
-	Matrix *res = init_matrix(m->size[0], m->size[1]);
-
-	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], &info);
-	printf("LAPACKE_dgetrf: %d\n", info);
-
-	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], &info);
-	printf("LAPACKE_dgetri: %d\n", info);
+    int ipiv[m->size[0]+1];
+    LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
+    LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
 }
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m])
+void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
 {
 	V[0] = y0;
 	Vector *y1;
 	y1 = init_vector(y0->size);
-	prod_mat_vect(A, y0, y1);
+	prod_mat_vect_mpi(A, y0, y1);
 
-	for (int i = 1; i < m - 1; i++)
-	{
-		C->data[2 * i - 1] = prodScalaire(y1, y0);
-		C->data[2 * i] = prodScalaire(y1, y1);
-		y0 = y1;
-		V[i] = y0;
-		//prod_mat_vect(A, y0, y1);
+	for (int i = 1; i <= m - 1; i++)
+	{	if(rank == 0){
+			C->data[2 * i - 1] = prodScalaire(y1, y0);
+			C->data[2 * i] = prodScalaire(y1, y1);
+			y0 = y1;
+			V[i] = y0;
+		}
 		prod_mat_vect_mpi(A, y0, y1);
 	}
 	C->data[2 * m - 1] = prodScalaire(y1, y0);
@@ -352,8 +348,6 @@ void compute_eigenvalues_and_vectors(int m, Matrix *mat, double *wr, double *vr)
 	int info;
 	double wi[m], vl[m];
 
-	/* Executable statements */
-	printf(" DGEEV eigenvalues and eigenvectors\n");
 	/* Solve eigenproblem */
 	info = LAPACKE_dgeev(LAPACK_ROW_MAJOR, 'N', 'V', m, mat->data[0], m, wr, wi, vl, m, vr, m);
 	/* Check for convergence */
@@ -516,78 +510,71 @@ Matrix* extract_matrix_from_file(int argc, char **argv)
 void PRR(int m, Vector *x, Matrix *A)
 {	
 	// Size and rank of MPI
-	int size, rank;
+	int size, rank, iter = 0;
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	// STEP 1
 	int N = A->size[0];
+
 	// Normalisation de x + calcul de y0
-	double norm;
-	Vector *y;
-	if (rank == 0){
-		norm = vect_norm(x);
-		y = normalize(x, norm);
-	}	
+	double norm, max, C1;
+	Vector *y, *residus, *C, *val_ritz;
+	Vector *V[m], *vect_ritz[m];
+	Matrix *B, *Cc, *Xm, *Vm;
+	val_ritz = init_vector(m);
 
-	// C0 = || y0 ||^2
-	double C1;
-	if (rank == 0){
-		norm = vect_norm(y);
-		C1 = norm * norm;
-	}
-	
-
-	// Calcul de C1, C2,....C2m-1
-	Vector *C;
-	Vector *V[m];
-	C = init_vector(2 * m);
-	if (rank == 0)	C->data[0] = C1;
-
-	for (int i = 0; i < m; i++) {
-		V[i] = init_vector(N);
-	}
-
-	
-	// SPLIT 1
-	step4(C, A, y, m, V);
-	// GATHER 1
-
-	// Calcul de B^ et C^.
-	Matrix *B, *Cc, *Xm;
-	B = init_matrix(m, m);
-	Cc = init_matrix(m, m);
-	Xm = init_matrix(m, m);
-	
-	if (rank == 0) {
-		fill_B_and_C(B, Cc, C);	
-		// Calcul de Xm
-		inversion_matrix(B);
-	}
-
-	// SPLIT 2
-	prod_mat_mat(B, Cc, Xm);
-	// GATHER 2
-	if (rank == 0) print_matrix(B);
-
-	// Calcul des valeurs propres et vecteurs propres de Xm
-	Matrix *Vm = convert_vector_array_to_matrix(m, V);
-	Vector *val_ritz = init_vector(m);
-	Vector *vect_ritz[m];
 	for (int i = 0; i < m; i++)
 	{
 		vect_ritz[i] = init_vector(N);
 	}
 
-	// SPLIT 3
-	step5(m, Xm, Vm, val_ritz, vect_ritz);
-	// GATHER 3
+	do {
+		if (rank == 0){
+			norm = vect_norm(x);
+			y = normalize(x, norm);
+		}	
 
-	// Test pour la projection ls
-	Vector *residus = step6(A, m, vect_ritz, val_ritz);
-	double max = max_in_vector(residus);
-	if (max_in_vector(residus) > P)
-	{
+		// C0 = || y0 ||^2
+		if (rank == 0){
+			norm = vect_norm(y);
+			C1 = norm * norm;
+		}
+		printf("C1 = %f\n", C1);
+
+		// Calcul de C1, C2,....C2m-1
+		C = init_vector(2 * m);
+		if (rank == 0)	{
+			C->data[0] = C1;
+		}
+		for (int i = 0; i < m; i++) {
+			V[i] = init_vector(N);
+		}
+		step4(C, A, y, m, V, rank);
+		
+		// Calcul de B^ et C^.
+		B = init_matrix(m, m);
+		Cc = init_matrix(m, m);
+		Xm = init_matrix(m, m);
+		
+		if (rank == 0) {
+			fill_B_and_C(B, Cc, C);	
+			inversion_matrix(B);
+			prod_mat_mat(B, Cc, Xm);
+			
+			// Calcul des valeurs propres et vecteurs propres de Xm
+			Vm = convert_vector_array_to_matrix(m, V);
+		}
+
+		val_ritz = init_vector(m);
+		if (rank == 0){
+			step5(m, Xm, Vm, val_ritz, vect_ritz);
+		} 
+
+		// Test pour la projection ls
+		residus = step6(A, m, vect_ritz, val_ritz);
+		max = max_in_vector(residus);
+		
 		// ON RESTART
 		int i;
 		for (i = 0; i < residus->size; i++)
@@ -597,13 +584,16 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
-		PRR(m, vect_ritz[i], A);
-	}
-	print_vector(val_ritz);
-	free_vector(y);
-	free_matrix(B);
-	free_matrix(Cc);
-	free_vector(C);
+			// FREE MEMORY 
+			print_vector(val_ritz);
+			free_vector(y);
+			free_matrix(B);
+			free_matrix(Cc);
+			free_vector(C);
+		iter++;
+		y = vect_ritz[i];
+	}while((max_in_vector(residus) > P) && (iter < MAX_ITER));
+	
 }
 
 int main(int argc, char **argv)
