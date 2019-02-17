@@ -9,9 +9,9 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define K 1		  // Nombre de valeurs propres
-#define P 0.00001 // Precision
-#define thr 4	 // Nombre de Threads
+#define K 5	// Nombre de valeurs propres
+#define P 0.1 // Precision
+#define thr 4  // Nombre de Threads
 #define MAX_ITER 100
 
 /* DGEEV prototype */
@@ -136,11 +136,8 @@ double vect_norm(Vector *x)
 	double result = 0;
 	int i;
 
-	// omp_set_num_threads(thr);
-// #pragma omp parallel for private(i)
-	for (i = 0; i < x->size; i++)
-	{
-		result += x->data[i] * x->data[i];
+	for(i = 0; i < x->size; i ++){
+		result += x->data[i]*x->data[i];
 	}
 
 	return sqrt(result);
@@ -153,11 +150,8 @@ Vector *normalize(Vector *x, double norm)
 	Vector *v;
 	v = init_vector(x->size);
 
-	// omp_set_num_threads(thr);
-// #pragma omp parallel for private(i)
-	for (i = 0; i < x->size; i++)
-	{
-		v->data[i] = x->data[i] / norm;
+	for(i = 0; i < x->size; i++){
+		v->data[i] = x->data[i]/norm;
 	}
 	return v;
 }
@@ -194,25 +188,21 @@ void gather_vector(Vector *A, Vector *sub_a)
 /////// END MPI ///////:
 
 /* Produit matrice-vector : A*b = c*/
-void prod_mat_vect(Matrix *a, Vector *b, Vector *c)
-{
-	int i, j;
-
-// 	omp_set_num_threads(thr);
-// #pragma omp parallel for private(i, j)
-	for (i = 0; i < c->size; i++)
-	{
-		c->data[i] = 0;
-		for (j = 0; j < b->size; j++)
-		{
-			c->data[i] = c->data[i] + a->data[i][j] * b->data[j];
-		}
-	}
+void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
+    int i, j;
+    
+    // omp_set_num_threads(thr);
+    // #pragma omp parallel for private(i, j)
+    for ( i = 0; i < c->size; i++){
+        c->data[i] = 0;
+        for (j = 0; j < b->size; j++){
+            c->data[i] = c->data[i] + a->data[i][j]*b->data[j];
+        }
+    }
 }
 
-void prod_mat_vect_mpi(Matrix *a, Vector *b, Vector *c)
-{
-	int i, j, rank, size;
+void prod_mat_vect_mpi(Matrix* a, Vector* b, Vector* c){
+    int i, j, rank, size;
 
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -241,20 +231,18 @@ void prod_mat_mat(Matrix *A, Matrix *B, Matrix *C)
 {
 	int i, j, k;
 
-	// omp_set_num_threads(thr);
-// #pragma omp parallel shared(A, B, C) private(i, j, k)
-	{
-// #pragma omp for schedule(static)
-		for (i = 0; i < A->size[0]; i++)
-		{
-			for (j = 0; j < B->size[1]; j++)
-			{
-				C->data[i][j] = 0;
-				for (k = 0; k < B->size[1]; k++)
-					C->data[i][j] += A->data[i][k] * B->data[k][j];
-			}
-		}
-	}
+    // omp_set_num_threads(thr);
+    // #pragma omp parallel shared(A,B,C) private(i,j,k) 
+    // {
+    //     #pragma omp for schedule(static)
+        for (i = 0; i < A->size[0]; i++){
+            for (j = 0; j < B->size[1]; j++){
+                C->data[i][j] = 0;
+                for (k = 0; k < B->size[1]; k++)
+                C->data[i][j] += A->data[i][k]*B->data[k][j];
+            }
+        }
+    // }
 }
 
 /* Produit scalaire */
@@ -263,9 +251,8 @@ double prodScalaire(Vector *v1, Vector *v2)
 	double res = 0;
 	int i;
 
-// 	omp_set_num_threads(thr);
-// #pragma omp parallel for private(i) reduction(+ \
-// 											  : res)
+	// omp_set_num_threads(thr);
+	// #pragma omp parallel for private(i) reduction(+:res)
 	for (i = 0; i < v1->size; i++)
 	{
 		res += v1->data[i] * v2->data[i];
@@ -277,10 +264,9 @@ Vector *scalar_mult_vector(double scalar, Vector *v1)
 {
 	Vector *v2 = init_vector(v1->size);
 	int i;
-// 	omp_set_num_threads(thr);
-// #pragma omp parallel for private(i)
-	for (i = 0; i < v1->size; i++)
-	{
+	// omp_set_num_threads(thr);
+    // #pragma omp parallel for private(i)
+	for(i = 0; i < v1->size; i++){
 		v2->data[i] = scalar * v1->data[i];
 	}
 	return v2;
@@ -390,10 +376,9 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 
 	// Compute vectors of ritz
 	int i; // PAS DE BESOINS DE PRAGMA CAR m TRES PETIT
-	for (i = 0; i < m; i++)
-	{
-		y->data = &(eigen_vect->data[i * m]);
-		prod_mat_vect(Vm, val_ritz, vect_ritz[i]);
+    for(i = 0; i < m; i++){
+		y->data = &(eigen_vect->data[i*m]);
+		prod_mat_vect(Vm, y, vect_ritz[i]); 
 	}
 
 	// print_vector(val_ritz);
@@ -554,11 +539,9 @@ void PRR(int m, Vector *x, Matrix *A)
 		vect_ritz[i] = init_vector(N);
 	}
 
-	do
-	{
-		// print_vector(x);
-		if (rank == 0)
-		{
+	// START ITERATION
+	do {
+		if (rank == 0){
 			norm = vect_norm(x);
 			// printf("%f\n", norm);
 			y = normalize(x, norm);
@@ -567,9 +550,10 @@ void PRR(int m, Vector *x, Matrix *A)
 
 		C1 = 0;
 		// C0 = || y0 ||^2
-		norm = vect_norm(y);
-		C1 = norm * norm;
-		// printf("C1 = %f\n", C1);
+		if (rank == 0){
+			norm = vect_norm(y);
+			C1 = norm * norm;
+		}
 
 		// Calcul de C1, C2,....C2m-1
 		C = init_vector(2 * m);
@@ -630,20 +614,16 @@ void PRR(int m, Vector *x, Matrix *A)
 		free_vector(C);
 		iter++;
 		x = vect_ritz[i];
-
-	} while ((max_in_vector(residus) > P) && (iter < MAX_ITER));
-
-	// print_vector(val_ritz);
+	}while((max_in_vector(residus) > P) && (iter < MAX_ITER));
+	
 }
 
 int main(int argc, char **argv)
 {
 	MPI_Init(&argc, &argv);
-	int size;
-	MPI_Comm_size(MPI_COMM_WORLD, &size);
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
+	int size; MPI_Comm_size(MPI_COMM_WORLD, &size);
+	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	
 	int m = 2;
 	int N = 100;
 
