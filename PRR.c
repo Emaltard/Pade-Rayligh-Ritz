@@ -9,10 +9,10 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define K 5	// Nombre de valeurs propres
+#define K 1		  // Nombre de valeurs propres
 #define P 0.00001 // Precision
-#define thr 4  // Nombre de Threads
-#define MAX_ITER 1
+#define thr 4	 // Nombre de Threads
+#define MAX_ITER 100
 
 /* DGEEV prototype */
 /*
@@ -111,7 +111,7 @@ void fill_vector_with_random_values(Vector *v)
 {
 	for (int i = 0; i < v->size; i++)
 	{
-		v->data[i] = 1;//frand_a_b(1.0, 10.0);
+		v->data[i] = 1; //frand_a_b(1.0, 10.0);
 	}
 }
 
@@ -136,10 +136,11 @@ double vect_norm(Vector *x)
 	double result = 0;
 	int i;
 
-	omp_set_num_threads(thr);
-    #pragma omp parallel for private(i)
-	for(i = 0; i < x->size; i ++){
-		result += x->data[i]*x->data[i];
+	// omp_set_num_threads(thr);
+// #pragma omp parallel for private(i)
+	for (i = 0; i < x->size; i++)
+	{
+		result += x->data[i] * x->data[i];
 	}
 
 	return sqrt(result);
@@ -152,37 +153,40 @@ Vector *normalize(Vector *x, double norm)
 	Vector *v;
 	v = init_vector(x->size);
 
-	omp_set_num_threads(thr);
-    #pragma omp parallel for private(i)
-	for(i = 0; i < x->size; i++){
-		v->data[i] = x->data[i]/norm;
+	// omp_set_num_threads(thr);
+// #pragma omp parallel for private(i)
+	for (i = 0; i < x->size; i++)
+	{
+		v->data[i] = x->data[i] / norm;
 	}
 	return v;
 }
 
 ////// MPI ///////
-Matrix* split_matrix(Matrix* A){
+Matrix *split_matrix(Matrix *A)
+{
 	int sub_row, sub_size;
 	int comm_size, rank;
 	MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	sub_row = A->size[0]/comm_size;
+	sub_row = A->size[0] / comm_size;
 	sub_size = sub_row * A->size[1];
 
 	// The matrix is ​​subdivided on each processor
-    Matrix* sub_mat = init_matrix(sub_row, A->size[1]);
-	MPI_Scatter(&(A->data[0][0]), sub_size , MPI_DOUBLE, &(sub_mat->data[0][0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	Matrix *sub_mat = init_matrix(sub_row, A->size[1]);
+	MPI_Scatter(&(A->data[0][0]), sub_size, MPI_DOUBLE, &(sub_mat->data[0][0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	return sub_mat;
 }
 
-void gather_vector(Vector* A, Vector* sub_a){
+void gather_vector(Vector *A, Vector *sub_a)
+{
 	int sub_size;
 	int comm_size, rank;
 	MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	sub_size = A->size/comm_size;
+	sub_size = A->size / comm_size;
 
 	MPI_Gather(&(sub_a->data[0]), sub_size, MPI_DOUBLE, &(A->data[0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
@@ -190,57 +194,67 @@ void gather_vector(Vector* A, Vector* sub_a){
 /////// END MPI ///////:
 
 /* Produit matrice-vector : A*b = c*/
-void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
-    int i, j;
-    
-    omp_set_num_threads(thr);
-    #pragma omp parallel for private(i, j)
-    for ( i = 0; i < b->size; i++){
-        c->data[i] = 0;
-        for (j = 0; j < b->size; j++){
-            c->data[i] = c->data[i] + a->data[i][j]*b->data[j];
-        }
-    }
+void prod_mat_vect(Matrix *a, Vector *b, Vector *c)
+{
+	int i, j;
+
+// 	omp_set_num_threads(thr);
+// #pragma omp parallel for private(i, j)
+	for (i = 0; i < c->size; i++)
+	{
+		c->data[i] = 0;
+		for (j = 0; j < b->size; j++)
+		{
+			c->data[i] = c->data[i] + a->data[i][j] * b->data[j];
+		}
+	}
 }
 
-void prod_mat_vect_mpi(Matrix* a, Vector* b, Vector* c){
-    int i, j, rank, size;
+void prod_mat_vect_mpi(Matrix *a, Vector *b, Vector *c)
+{
+	int i, j, rank, size;
 
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
+
 	// Le rang Master envoi aux autre le vecteur B
-	if (rank == 0){
-		for(i = 1; i < size; i++){
+	if (rank == 0)
+	{
+		for (i = 1; i < size; i++)
+		{
 			MPI_Send(&(b->data[0]), b->size, MPI_DOUBLE, i, 100, MPI_COMM_WORLD);
 		}
 	}
-	else {
+	else
+	{
 		MPI_Recv(&(b->data[0]), b->size, MPI_DOUBLE, 0, 100, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
-	
-	Matrix* sub_a = split_matrix(a);
-	Vector* sub_c = init_vector(sub_a->size[0]);
+
+	Matrix *sub_a = split_matrix(a);
+	Vector *sub_c = init_vector(sub_a->size[0]);
 	prod_mat_vect(sub_a, b, sub_c);
 	gather_vector(c, sub_c);
 	free_matrix(sub_a);
 }
 
-void prod_mat_mat(Matrix* A, Matrix* B, Matrix*C){
-    int i, j, k;
+void prod_mat_mat(Matrix *A, Matrix *B, Matrix *C)
+{
+	int i, j, k;
 
-    omp_set_num_threads(thr);
-    #pragma omp parallel shared(A,B,C) private(i,j,k) 
-    {
-        #pragma omp for schedule(static)
-        for (i = 0; i < A->size[0]; i++){
-            for (j = 0; j < B->size[1]; j++){
-                C->data[i][j] = 0;
-                for (k = 0; k < B->size[1]; k++)
-                C->data[i][j] += A->data[i][k]*B->data[k][j];
-            }
-        }
-    }
+	// omp_set_num_threads(thr);
+// #pragma omp parallel shared(A, B, C) private(i, j, k)
+	{
+// #pragma omp for schedule(static)
+		for (i = 0; i < A->size[0]; i++)
+		{
+			for (j = 0; j < B->size[1]; j++)
+			{
+				C->data[i][j] = 0;
+				for (k = 0; k < B->size[1]; k++)
+					C->data[i][j] += A->data[i][k] * B->data[k][j];
+			}
+		}
+	}
 }
 
 /* Produit scalaire */
@@ -249,8 +263,9 @@ double prodScalaire(Vector *v1, Vector *v2)
 	double res = 0;
 	int i;
 
-	omp_set_num_threads(thr);
-	#pragma omp parallel for private(i) reduction(+:res)
+// 	omp_set_num_threads(thr);
+// #pragma omp parallel for private(i) reduction(+ \
+// 											  : res)
 	for (i = 0; i < v1->size; i++)
 	{
 		res += v1->data[i] * v2->data[i];
@@ -262,9 +277,10 @@ Vector *scalar_mult_vector(double scalar, Vector *v1)
 {
 	Vector *v2 = init_vector(v1->size);
 	int i;
-	omp_set_num_threads(thr);
-    #pragma omp parallel for private(i)
-	for(i = 0; i < v1->size; i++){
+// 	omp_set_num_threads(thr);
+// #pragma omp parallel for private(i)
+	for (i = 0; i < v1->size; i++)
+	{
 		v2->data[i] = scalar * v1->data[i];
 	}
 	return v2;
@@ -296,9 +312,9 @@ double max_in_vector(Vector *v1)
 ////////////////////////////////////////////////////////////
 void inversion_matrix(Matrix *m)
 {
-    int ipiv[m->size[0]+1];
-    LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
-    LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
+	int ipiv[m->size[0] + 1];
+	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
+	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
 }
 
 /* Etape 4 de l'algorithme */
@@ -311,7 +327,9 @@ void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
 	prod_mat_vect_mpi(A, y0, y1);
 
 	for (int i = 1; i <= m - 1; i++)
-	{	if(rank == 0){
+	{
+		if (rank == 0)
+		{
 			C->data[2 * i - 1] = prodScalaire(y1, y0);
 			C->data[2 * i] = prodScalaire(y1, y1);
 			y0 = y1;
@@ -326,12 +344,14 @@ void fill_B_and_C(Matrix *B, Matrix *C, Vector *V)
 {
 	int i, j, s = V->size / 2;
 
-	omp_set_num_threads(thr);
-    #pragma omp parallel shared(B,C) private(i,j) 
-    for(i = 0; i < s; i++){
-		for(j = 0; j < s; j++){
-			B->data[i][j] = V->data[i+j];
-			C->data[i][j] = V->data[i+j+1];
+// 	omp_set_num_threads(thr);
+// #pragma omp parallel shared(B, C) private(i, j)
+	for (i = 0; i < s; i++)
+	{
+		for (j = 0; j < s; j++)
+		{
+			B->data[i][j] = V->data[i + j];
+			C->data[i][j] = V->data[i + j + 1];
 		}
 	}
 }
@@ -367,13 +387,16 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 
 	// Compute eigenvalues and eigenvectors of Xm (eigenvalues == ritz value)
 	compute_eigenvalues_and_vectors(m, Xm, val_ritz->data, eigen_vect->data);
-	
+
 	// Compute vectors of ritz
 	int i; // PAS DE BESOINS DE PRAGMA CAR m TRES PETIT
-    for(i = 0; i < m; i++){
-		vect_ritz[i]->data = &(eigen_vect->data[i*m]);
-		prod_mat_vect(Vm, val_ritz, vect_ritz[i]); 
+	for (i = 0; i < m; i++)
+	{
+		y->data = &(eigen_vect->data[i * m]);
+		prod_mat_vect(Vm, val_ritz, vect_ritz[i]);
 	}
+
+	// print_vector(val_ritz);
 }
 
 Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
@@ -403,7 +426,7 @@ Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 	return res;
 }
 
-Matrix* extract_matrix_from_mm_file(FILE *f)
+Matrix *extract_matrix_from_mm_file(FILE *f)
 {
 	int ret_code;
 	MM_typecode matcode;
@@ -434,7 +457,7 @@ Matrix* extract_matrix_from_mm_file(FILE *f)
 		exit(1);
 	}
 
-	Matrix* A = init_matrix(M, N);
+	Matrix *A = init_matrix(M, N);
 
 	for (i = 0; i < nz; i++)
 	{
@@ -447,7 +470,7 @@ Matrix* extract_matrix_from_mm_file(FILE *f)
 	return A;
 }
 
-Matrix* extract_matrix_from_txt_file(FILE *f)
+Matrix *extract_matrix_from_txt_file(FILE *f)
 {
 	int M, N;
 	double val;
@@ -460,7 +483,7 @@ Matrix* extract_matrix_from_txt_file(FILE *f)
 		exit(1);
 	}
 
-	Matrix* A = init_matrix(M, N);
+	Matrix *A = init_matrix(M, N);
 
 	for (int i = 0; i < M; i++)
 	{
@@ -475,7 +498,7 @@ Matrix* extract_matrix_from_txt_file(FILE *f)
 	return A;
 }
 
-Matrix* extract_matrix_from_file(int argc, char **argv)
+Matrix *extract_matrix_from_file(int argc, char **argv)
 {
 	if (argc < 3)
 	{
@@ -485,7 +508,7 @@ Matrix* extract_matrix_from_file(int argc, char **argv)
 	if ((f = fopen(argv[2], "r")) == NULL)
 		exit(1);
 
-	Matrix* A;
+	Matrix *A;
 
 	if (strcmp(argv[1], "mm") == 0)
 	{
@@ -494,7 +517,9 @@ Matrix* extract_matrix_from_file(int argc, char **argv)
 	else if (strcmp(argv[1], "txt") == 0)
 	{
 		A = extract_matrix_from_txt_file(f);
-	}else{
+	}
+	else
+	{
 		fprintf(stderr, "Usage: %s [file-type: mm or txt] [filename]\n", argv[0]);
 		exit(1);
 	}
@@ -508,7 +533,7 @@ Matrix* extract_matrix_from_file(int argc, char **argv)
 
 /* Fonction Algorithme itérative PRR */
 void PRR(int m, Vector *x, Matrix *A)
-{	
+{
 	// Size and rank of MPI
 	int size, rank, iter = 0;
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -529,52 +554,65 @@ void PRR(int m, Vector *x, Matrix *A)
 		vect_ritz[i] = init_vector(N);
 	}
 
-	do {
-		if (rank == 0){
+	do
+	{
+		// print_vector(x);
+		if (rank == 0)
+		{
 			norm = vect_norm(x);
+			// printf("%f\n", norm);
 			y = normalize(x, norm);
-		}	
-
-		// C0 = || y0 ||^2
-		if (rank == 0){
-			norm = vect_norm(y);
-			C1 = norm * norm;
 		}
-		printf("C1 = %f\n", C1);
+		// print_vector(y);
+
+		C1 = 0;
+		// C0 = || y0 ||^2
+		norm = vect_norm(y);
+		C1 = norm * norm;
+		// printf("C1 = %f\n", C1);
 
 		// Calcul de C1, C2,....C2m-1
 		C = init_vector(2 * m);
-		if (rank == 0)	{
+		if (rank == 0)
+		{
 			C->data[0] = C1;
 		}
-		for (int i = 0; i < m; i++) {
+		for (int i = 0; i < m; i++)
+		{
 			V[i] = init_vector(N);
 		}
 		step4(C, A, y, m, V, rank);
-		
+
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
 		Cc = init_matrix(m, m);
 		Xm = init_matrix(m, m);
-		
-		if (rank == 0) {
-			fill_B_and_C(B, Cc, C);	
+
+		if (rank == 0)
+		{
+			fill_B_and_C(B, Cc, C);
 			inversion_matrix(B);
+			// print_matrix(B)
 			prod_mat_mat(B, Cc, Xm);
-			
+
+			// print_vector(Xm);
+
 			// Calcul des valeurs propres et vecteurs propres de Xm
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
 
 		val_ritz = init_vector(m);
-		if (rank == 0){
+		if (rank == 0)
+		{
 			step5(m, Xm, Vm, val_ritz, vect_ritz);
-		} 
+		}
 
 		// Test pour la projection ls
 		residus = step6(A, m, vect_ritz, val_ritz);
 		max = max_in_vector(residus);
-		
+
+		printf("max = %f\n", max);
+
 		// ON RESTART
 		int i;
 		for (i = 0; i < residus->size; i++)
@@ -584,42 +622,61 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
-			// FREE MEMORY 
-			print_vector(val_ritz);
-			free_vector(y);
-			free_matrix(B);
-			free_matrix(Cc);
-			free_vector(C);
+		// FREE MEMORY
+		// print_vector(val_ritz);
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
 		iter++;
-		y = vect_ritz[i];
-	}while((max_in_vector(residus) > P) && (iter < MAX_ITER));
-	
+		x = vect_ritz[i];
+
+	} while ((max_in_vector(residus) > P) && (iter < MAX_ITER));
+
+	// print_vector(val_ritz);
 }
 
 int main(int argc, char **argv)
 {
 	MPI_Init(&argc, &argv);
-	int size; MPI_Comm_size(MPI_COMM_WORLD, &size);
-	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	
-	int m = 3;
+	int size;
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+	int m = 2;
 	int N = 100;
 
 	Vector *v;
 	Matrix *A;
 
 	srand(time(0));
-	
-	if (rank == 0){
+
+	if (rank == 0)
+	{
 		A = extract_matrix_from_file(argc, argv);
-		v = init_vector(A->size[0]);	
+		v = init_vector(A->size[0]);
 
 		fill_vector_with_random_values(v);
 		printf("\n");
 	}
 
+	// double wr[m];
+	// double vr[m*m];
+	// compute_eigenvalues_and_vectors(A->size[0], A, wr, vr);
+
+	// for(int i=0; i < m; i++){
+	// 	printf("%f ", wr[i]);
+	// }
+	// printf("\n");
+
+	// for(int i=0; i < m*m; i++){
+	// 	printf("%f ", vr[i]);
+	// }
+	// printf("\n");
+
 	double start, end;
-	
+
 	MPI_Barrier(MPI_COMM_WORLD);
 	start = MPI_Wtime();
 
@@ -637,6 +694,5 @@ int main(int argc, char **argv)
 		free_matrix(A);
 	}
 
-
-	return 0;	
+	return 0;
 }
