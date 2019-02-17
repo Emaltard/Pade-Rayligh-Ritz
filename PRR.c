@@ -12,7 +12,7 @@
 #define K 5	// Nombre de valeurs propres
 #define P 0.1 // Precision
 #define thr 4  // Nombre de Threads
-#define MAX_ITER 2 
+#define MAX_ITER 2
 
 /* DGEEV prototype */
 /*
@@ -530,7 +530,7 @@ void PRR(int m, Vector *x, Matrix *A)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	// STEP 1
-	int N;
+	int N, max_r;
 	if (rank == 0){
 		N = A->size[0];
 		for(int i = 1; i < size; i++){
@@ -565,7 +565,6 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			y = init_vector(N);
 		}
-		
 		// C0 = || y0 ||^2
 		if (rank == 0){
 			norm = vect_norm(y);
@@ -632,10 +631,19 @@ void PRR(int m, Vector *x, Matrix *A)
 			free_vector(C);
 		iter++;
 		x = vect_ritz[i];
-		printf("VAL RITZ : \n");
-		print_vector(val_ritz);
+		if (rank == 0){
+			printf("VAL RITZ : \n");
+			print_vector(val_ritz);
+			max_r = max_in_vector(residus);
+			for(int i = 1; i < size; i++){
+				MPI_Send(&max_r, 1, MPI_INT, i, 001, MPI_COMM_WORLD);
+			}
+		}
+		else{
+			MPI_Recv(&max_r, 1, MPI_INT, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);			
+		}
 
-	}while((max_in_vector(residus) > P) && (iter < MAX_ITER));
+	}while( (max_r > P) && (iter < MAX_ITER));
 	
 }
 int main(int argc, char **argv)
