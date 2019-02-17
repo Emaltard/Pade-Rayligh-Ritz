@@ -12,7 +12,7 @@
 #define K 5	// Nombre de valeurs propres
 #define P 0.1 // Precision
 #define thr 4  // Nombre de Threads
-#define MAX_ITER 100
+#define MAX_ITER 2 
 
 /* DGEEV prototype */
 /*
@@ -296,21 +296,32 @@ double max_in_vector(Vector *v1)
 }
 
 ////////////////////////////////////////////////////////////
-void inversion_matrix(Matrix *m)
+int inversion_matrix(Matrix *m)
 {
+<<<<<<< HEAD
 	int ipiv[m->size[0] + 1];
 	LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
 	LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
+=======
+	int info1, info2;
+    int ipiv[m->size[0]+1];
+    info1 = LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
+    info2 = LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
+
+	return info1*info2;
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 }
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
+void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
 {
 	V[0] = y0;
 	Vector *y1;
-	y1 = init_vector(y0->size);
+	y1 = init_vector(N);
+
 	prod_mat_vect_mpi(A, y0, y1);
+	printf("RANk : %d, size %d\n", rank, y0->size);
 
 	for (int i = 1; i <= m - 1; i++)
 	{
@@ -370,7 +381,6 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 	int i_max = 0;
 	Vector *y = init_vector(m);
 	Vector *eigen_vect = init_vector(m * m);
-
 	// Compute eigenvalues and eigenvectors of Xm (eigenvalues == ritz value)
 	compute_eigenvalues_and_vectors(m, Xm, val_ritz->data, eigen_vect->data);
 
@@ -394,6 +404,8 @@ Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
 		Vector *v2 = scalar_mult_vector(val_ritz->data[j], ritz_vectors[j]);
 
 		residus->data[j] = vect_norm(vector_minus_vector(v1, v2));
+		free_vector(v1);
+		free_vector(v2);
 	}
 	return residus;
 }
@@ -525,7 +537,16 @@ void PRR(int m, Vector *x, Matrix *A)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	// STEP 1
-	int N = A->size[0];
+	int N;
+	if (rank == 0){
+		N = A->size[0];
+		for(int i = 1; i < size; i++){
+			MPI_Send(&N, 1, MPI_INT, i, 111, MPI_COMM_WORLD);
+		}
+	}
+	else{
+		MPI_Recv(&N, 1, MPI_INT, 0, 111, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	}
 
 	// Normalisation de x + calcul de y0
 	double norm, max, C1;
@@ -546,9 +567,17 @@ void PRR(int m, Vector *x, Matrix *A)
 			// printf("%f\n", norm);
 			y = normalize(x, norm);
 		}
+<<<<<<< HEAD
 		// print_vector(y);
 
 		C1 = 0;
+=======
+		else
+		{
+			y = init_vector(N);
+		}
+		
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 		// C0 = || y0 ||^2
 		if (rank == 0){
 			norm = vect_norm(y);
@@ -565,8 +594,16 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			V[i] = init_vector(N);
 		}
+<<<<<<< HEAD
 		step4(C, A, y, m, V, rank);
 
+=======
+		// printf("C : \n");
+		step4(N, C, A, y, m, V, rank);
+		// print_vector(C);
+
+		
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
 		Cc = init_matrix(m, m);
@@ -578,9 +615,14 @@ void PRR(int m, Vector *x, Matrix *A)
 			inversion_matrix(B);
 			// print_matrix(B)
 			prod_mat_mat(B, Cc, Xm);
+<<<<<<< HEAD
 
 			// print_vector(Xm);
 
+=======
+			// printf("MATRIX \n");
+			// print_matrix(Xm);
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 			// Calcul des valeurs propres et vecteurs propres de Xm
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
@@ -592,11 +634,15 @@ void PRR(int m, Vector *x, Matrix *A)
 		}
 
 		// Test pour la projection ls
+
 		residus = step6(A, m, vect_ritz, val_ritz);
 		max = max_in_vector(residus);
 
+<<<<<<< HEAD
 		printf("max = %f\n", max);
 
+=======
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 		// ON RESTART
 		int i;
 		for (i = 0; i < residus->size; i++)
@@ -606,26 +652,46 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
+<<<<<<< HEAD
 		// FREE MEMORY
 		// print_vector(val_ritz);
 		free_vector(y);
 		free_matrix(B);
 		free_matrix(Cc);
 		free_vector(C);
+=======
+			// FREE MEMORY 
+			free_vector(y);
+			free_matrix(B);
+			free_matrix(Cc);
+			free_vector(C);
+>>>>>>> f7f8895b460f3b66c54d5d7d58ec2c94f416663b
 		iter++;
 		x = vect_ritz[i];
+		printf("VAL RITZ : \n");
+		print_vector(val_ritz);
+
 	}while((max_in_vector(residus) > P) && (iter < MAX_ITER));
 	
 }
-
 int main(int argc, char **argv)
 {
 	MPI_Init(&argc, &argv);
 	int size; MPI_Comm_size(MPI_COMM_WORLD, &size);
 	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	
-	int m = 2;
-	int N = 100;
+	int k, m;
+	if (rank == 0){
+		printf("Choose number of eigenvalues compute : ");
+		scanf("%d", &k);
+		m = 2*k; // Size subspace of kylov
+		for(int i = 1; i < size; i++){
+			MPI_Send(&m, 1, MPI_INT, i, 88, MPI_COMM_WORLD);
+		}
+	}	
+	else {
+		MPI_Recv(&m, 1, MPI_INT, 0, 88, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	}
 
 	Vector *v;
 	Matrix *A;

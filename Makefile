@@ -13,4 +13,13 @@ clean:
 	@rm -f PRR
 
 run: 
+	mpirun -n 1 ./$(EXEC) mm bcsstk01.mtx
+
+run4: 
+	mpirun -n 4 ./$(EXEC) mm bcsstk01.mtx
+
+test: 
 	mpirun -n 1 ./$(EXEC) txt test.txt
+
+test2: 
+	mpirun -n 2 ./$(EXEC) txt test.txt
