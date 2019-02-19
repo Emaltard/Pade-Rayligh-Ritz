@@ -13,7 +13,7 @@ clean:
 	@rm -f PRR
 
 run: 
-	mpirun -n 1 ./$(EXEC) mm bcsstk01.mtx
+	mpirun -n 1 ./$(EXEC) mm plat1919.mtx
 
 run4: 
 	mpirun -n 4 ./$(EXEC) mm bcsstk01.mtx
