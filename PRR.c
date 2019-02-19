@@ -12,7 +12,7 @@
 #define K 5	// Nombre de valeurs propres
 #define P 0.1 // Precision
 #define thr 4  // Nombre de Threads
-#define MAX_ITER 2
+#define MAX_ITER 100
 
 /* DGEEV prototype */
 /*
@@ -285,13 +285,16 @@ Vector *vector_minus_vector(Vector *v1, Vector *v2)
 double max_in_vector(Vector *v1)
 {
 	double max = 0.0;
+	int i_max = 0;
 	for (int i = 0; i < v1->size; i++)
 	{
 		if (v1->data[i] > max)
 		{
 			max = v1->data[i];
+			i_max = i;
 		}
 	}
+	printf("i_max : %d\n", i_max);
 	return max;
 }
 
