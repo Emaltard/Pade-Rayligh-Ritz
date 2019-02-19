@@ -364,6 +364,7 @@ void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int ran
 			V[i] = y0;
 		}
 		prod_mat_vect_mpi(A, y0, y1);
+		
 	}
 	C->data[2 * m - 1] = prodScalaire(y1, y0);
 }
@@ -628,13 +629,9 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			C->data[0] = C1;
 		}
-		// for (int i = 0; i < m; i++)
-		// {
-		// 	//V[i] = init_vector(N);
-		// }
 
 		step4(N, C, A, y, m, V, rank);
-
+	
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
 		Cc = init_matrix(m, m);
@@ -648,7 +645,7 @@ void PRR(int m, Vector *x, Matrix *A)
 			// Calcul des valeurs propres et vecteurs propres de Xm
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
-
+	
 		//val_ritz = init_vector(m);
 		if (rank == 0)
 		{
@@ -687,12 +684,15 @@ void PRR(int m, Vector *x, Matrix *A)
 		}
 
 		// FREE MEMORY
-		free_vector(y);
+		// free_vector(y);
 		free_matrix(B);
 		free_matrix(Cc);
 		free_vector(C);
 		free_matrix(Xm);
 		free_matrix(Vm);
+		for(int i = 0 ; i < m ; i++){
+			free_vector(V[i]);
+		}
 		
 	} while ((max_r > P) && (iter < MAX_ITER));
 	printf("VAL RITZ : \n");
