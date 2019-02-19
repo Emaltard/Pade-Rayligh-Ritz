@@ -9,10 +9,10 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define K 5	// Nombre de valeurs propres
-#define P 0.1 // Precision
-#define thr 4  // Nombre de Threads
-#define MAX_ITER 2
+#define K 5		// Nombre de valeurs propres
+#define P 0.001 // Precision
+#define thr 4   // Nombre de Threads
+#define MAX_ITER 100
 
 /* DGEEV prototype */
 /*
@@ -29,6 +29,7 @@ extern void dgeev(char *jobvl, char *jobvr, int *n, double *a,
 				  int *lda, double *wr, double *wi, double *vl, int *ldvl,
 				  double *vr, int *ldvr, double *work, int *lwork, int *info);
 
+/* Structure pour stocker un vecteur et sa taille */
 struct vector
 {
 	int size;
@@ -36,6 +37,7 @@ struct vector
 };
 typedef struct vector Vector;
 
+/* Structure pour stocker une matrice et sa taille en x et y */
 struct matrix
 {
 	int size[2];
@@ -43,6 +45,7 @@ struct matrix
 };
 typedef struct matrix Matrix;
 
+/* Initialisation d'une structure vecteur d'une taille size en allouant de l'espace dans la mémoire, toutes les valeurs du vecteur sont initialisées à 0 */
 Vector *init_vector(int size)
 {
 	Vector *v = malloc(sizeof(Vector));
@@ -51,6 +54,9 @@ Vector *init_vector(int size)
 	return v;
 }
 
+/* Initialisation d'une structure matrice d'une taille size_x par size_y en allouant de l'espace dans la mémoire, 
+toutes les valeurs du vecteur sont initialisées à 0 
+ et les lignes de la matrices sont contigues en mémoire */
 Matrix *init_matrix(int size_x, int size_y)
 {
 	Matrix *m = malloc(sizeof(Matrix));
@@ -66,27 +72,32 @@ Matrix *init_matrix(int size_x, int size_y)
 	return m;
 }
 
+/* Libère la mémoire d'une structure vecteur */
 void free_vector(Vector *v)
 {
 	free(v->data);
 	free(v);
 }
 
+/* libere la mémoire d'une structure matrice */
 void free_matrix(Matrix *m)
 {
 	free(m->data);
 	free(m);
 }
 
+
+/* affiche dans la console les valeurs d'un vecteur */
 void print_vector(Vector *v)
 {
 	for (int i = 0; i < v->size; i++)
 	{
-		printf("%0.3f ", v->data[i]);
+		printf("%0.20f ", v->data[i]);
 	}
 	printf("\n");
 }
 
+/* affiche dans la matrice les valeurs d'une matrice */
 void print_matrix(Matrix *m)
 {
 	for (int i = 0; i < m->size[0]; i++)
@@ -101,20 +112,29 @@ void print_matrix(Matrix *m)
 
 //////////////////////////////////////////////////////////////
 
+/* Retourne un double aléatoire entre a et b */
 double frand_a_b(double a, double b)
 {
 	return (rand() / (double)RAND_MAX) * (b - a) + a;
 }
 
-/* Init vector randomly */
+/* Initialise un vecteur avec des valeurs aléatoires */
 void fill_vector_with_random_values(Vector *v)
 {
 	for (int i = 0; i < v->size; i++)
 	{
-		v->data[i] = 1; //frand_a_b(1.0, 10.0);
+		if (i == 0)
+		{
+			v->data[i] = 1; //frand_a_b(1.0, 10.0);
+		}
+		else
+		{
+			v->data[i] = 0;
+		}
 	}
 }
 
+/* Initilialise une matrice avec valeurs aléatoires avec la propriété de symétrie */
 void fill_matrix_with_random_values_symetric(Matrix *m)
 {
 	for (int i = 0; i < m->size[0]; i++)
@@ -136,8 +156,9 @@ double vect_norm(Vector *x)
 	double result = 0;
 	int i;
 
-	for(i = 0; i < x->size; i ++){
-		result += x->data[i]*x->data[i];
+	for (i = 0; i < x->size; i++)
+	{
+		result += x->data[i] * x->data[i];
 	}
 
 	return sqrt(result);
@@ -150,13 +171,15 @@ Vector *normalize(Vector *x, double norm)
 	Vector *v;
 	v = init_vector(x->size);
 
-	for(i = 0; i < x->size; i++){
-		v->data[i] = x->data[i]/norm;
+	for (i = 0; i < x->size; i++)
+	{
+		v->data[i] = x->data[i] / norm;
 	}
 	return v;
 }
 
 ////// MPI ///////
+/* Divise une matrice entre tout les processus */
 Matrix *split_matrix(Matrix *A)
 {
 	int sub_row, sub_size;
@@ -173,6 +196,7 @@ Matrix *split_matrix(Matrix *A)
 	return sub_mat;
 }
 
+/* Rassemble un vecteur sub_a depuis tout les processus en un vecteur A */
 void gather_vector(Vector *A, Vector *sub_a)
 {
 	int sub_size;
@@ -188,21 +212,26 @@ void gather_vector(Vector *A, Vector *sub_a)
 /////// END MPI ///////:
 
 /* Produit matrice-vector : A*b = c*/
-void prod_mat_vect(Matrix* a, Vector* b, Vector* c){
-    int i, j;
-    
-    // omp_set_num_threads(thr);
-    // #pragma omp parallel for private(i, j)
-    for ( i = 0; i < c->size; i++){
-        c->data[i] = 0;
-        for (j = 0; j < b->size; j++){
-            c->data[i] = c->data[i] + a->data[i][j]*b->data[j];
-        }
-    }
+void prod_mat_vect(Matrix *a, Vector *b, Vector *c)
+{
+	int i, j;
+
+	// omp_set_num_threads(thr);
+	// #pragma omp parallel for private(i, j)
+	for (i = 0; i < c->size; i++)
+	{
+		c->data[i] = 0;
+		for (j = 0; j < b->size; j++)
+		{
+			c->data[i] = c->data[i] + a->data[i][j] * b->data[j];
+		}
+	}
 }
 
-void prod_mat_vect_mpi(Matrix* a, Vector* b, Vector* c){
-    int i, j, rank, size;
+/* Produit matrice-vector en version MPI */
+void prod_mat_vect_mpi(Matrix *a, Vector *b, Vector *c)
+{
+	int i, j, rank, size;
 
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -227,22 +256,25 @@ void prod_mat_vect_mpi(Matrix* a, Vector* b, Vector* c){
 	free_matrix(sub_a);
 }
 
+/* Produit Matrice Matrice */
 void prod_mat_mat(Matrix *A, Matrix *B, Matrix *C)
 {
 	int i, j, k;
 
-    // omp_set_num_threads(thr);
-    // #pragma omp parallel shared(A,B,C) private(i,j,k) 
-    // {
-    //     #pragma omp for schedule(static)
-        for (i = 0; i < A->size[0]; i++){
-            for (j = 0; j < B->size[1]; j++){
-                C->data[i][j] = 0;
-                for (k = 0; k < B->size[1]; k++)
-                C->data[i][j] += A->data[i][k]*B->data[k][j];
-            }
-        }
-    // }
+	// omp_set_num_threads(thr);
+	// #pragma omp parallel shared(A,B,C) private(i,j,k)
+	// {
+	//     #pragma omp for schedule(static)
+	for (i = 0; i < A->size[0]; i++)
+	{
+		for (j = 0; j < B->size[1]; j++)
+		{
+			C->data[i][j] = 0;
+			for (k = 0; k < B->size[1]; k++)
+				C->data[i][j] += A->data[i][k] * B->data[k][j];
+		}
+	}
+	// }
 }
 
 /* Produit scalaire */
@@ -260,18 +292,21 @@ double prodScalaire(Vector *v1, Vector *v2)
 	return res;
 }
 
+/* Produit d'un saclaire par un vecteur */
 Vector *scalar_mult_vector(double scalar, Vector *v1)
 {
 	Vector *v2 = init_vector(v1->size);
 	int i;
 	// omp_set_num_threads(thr);
-    // #pragma omp parallel for private(i)
-	for(i = 0; i < v1->size; i++){
+	// #pragma omp parallel for private(i)
+	for (i = 0; i < v1->size; i++)
+	{
 		v2->data[i] = scalar * v1->data[i];
 	}
 	return v2;
 }
 
+/* Soustraction d'un vecteur v1 par le vecteur v2 */
 Vector *vector_minus_vector(Vector *v1, Vector *v2)
 {
 	Vector *v3 = init_vector(v1->size);
@@ -282,6 +317,7 @@ Vector *vector_minus_vector(Vector *v1, Vector *v2)
 	return v3;
 }
 
+/* Retourne la valeur max dans le vecteur v1 */
 double max_in_vector(Vector *v1)
 {
 	double max = 0.0;
@@ -296,14 +332,15 @@ double max_in_vector(Vector *v1)
 }
 
 ////////////////////////////////////////////////////////////
+/* Inverse la matrice m */
 int inversion_matrix(Matrix *m)
 {
 	int info1, info2;
-    int ipiv[m->size[0]+1];
-    info1 = LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
-    info2 = LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
+	int ipiv[m->size[0] + 1];
+	info1 = LAPACKE_dgetrf(LAPACK_ROW_MAJOR, m->size[0], m->size[1], m->data[0], m->size[0], ipiv);
+	info2 = LAPACKE_dgetri(LAPACK_ROW_MAJOR, m->size[0], m->data[0], m->size[0], ipiv);
 
-	return info1*info2;
+	return info1 * info2;
 }
 
 /* Etape 4 de l'algorithme */
@@ -330,12 +367,13 @@ void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int ran
 	C->data[2 * m - 1] = prodScalaire(y1, y0);
 }
 
+/* Remplie les matrices B et C avec le vecteur V suivant la méthode utilisée dans PRR */
 void fill_B_and_C(Matrix *B, Matrix *C, Vector *V)
 {
 	int i, j, s = V->size / 2;
 
-// 	omp_set_num_threads(thr);
-// #pragma omp parallel shared(B, C) private(i, j)
+	// 	omp_set_num_threads(thr);
+	// #pragma omp parallel shared(B, C) private(i, j)
 	for (i = 0; i < s; i++)
 	{
 		for (j = 0; j < s; j++)
@@ -347,11 +385,11 @@ void fill_B_and_C(Matrix *B, Matrix *C, Vector *V)
 }
 
 /**
-* Function to compute eigenvalues and eigenvectors with LAPACK functions
-* @param 	m		Integer which represent the size of the matrix mat
-* @param	mat		Matrix mat where we want to eigenvalues and eigenvectors
-* @param	wr		Array with eigenvalues
-* @param 	vr		Array 1D with all eigenvectors of size m
+* Fonction pour calculer les valeurs et vecteurs propres avec les fonctions LAPACK
+* m represente la taille de la matrice mat
+* mat est la matrice dont ont souhaite trouver
+* vr contiendra les vecteurs propres
+* wr contiendra les valeurs propres
 */
 void compute_eigenvalues_and_vectors(int m, Matrix *mat, double *wr, double *vr)
 {
@@ -368,6 +406,8 @@ void compute_eigenvalues_and_vectors(int m, Matrix *mat, double *wr, double *vr)
 	}
 }
 
+/* Etape 5 de l'algorithme 
+On calcule les vecteurs propres et valeurs propres du sous espace de Krylov Xm */
 void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m])
 {
 
@@ -379,14 +419,16 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 
 	// Compute vectors of ritz
 	int i; // PAS DE BESOINS DE PRAGMA CAR m TRES PETIT
-    for(i = 0; i < m; i++){
-		y->data = &(eigen_vect->data[i*m]);
-		prod_mat_vect(Vm, y, vect_ritz[i]); 
+	for (i = 0; i < m; i++)
+	{
+		y->data = &(eigen_vect->data[i * m]);
+		prod_mat_vect(Vm, y, vect_ritz[i]);
 	}
 
 	// print_vector(val_ritz);
 }
 
+/* Etape 6 de l'algorithme, on calcule les residus pour savoir si on doit redemmarer l'algorithme */
 Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
 {
 	Vector *residus = init_vector(i);
@@ -403,6 +445,7 @@ Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
 	return residus;
 }
 
+/* Convertie une tableau de vecteur en une Matrice */
 Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 {
 	Matrix *res = init_matrix(y[0]->size, m);
@@ -416,6 +459,7 @@ Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 	return res;
 }
 
+/* Extrait une matrice d'une fichier .mtx */
 Matrix *extract_matrix_from_mm_file(FILE *f)
 {
 	int ret_code;
@@ -460,6 +504,7 @@ Matrix *extract_matrix_from_mm_file(FILE *f)
 	return A;
 }
 
+/* Extrait une matrice d'un fichier .txt */
 Matrix *extract_matrix_from_txt_file(FILE *f)
 {
 	int M, N;
@@ -488,6 +533,7 @@ Matrix *extract_matrix_from_txt_file(FILE *f)
 	return A;
 }
 
+/* Extrait une matrice depuis un fichier, les formats supportés sont .mtx et .txt */
 Matrix *extract_matrix_from_file(int argc, char **argv)
 {
 	if (argc < 3)
@@ -531,16 +577,22 @@ void PRR(int m, Vector *x, Matrix *A)
 
 	// STEP 1
 	int N, max_r;
-	if (rank == 0){
+	if (rank == 0)
+	{
 		N = A->size[0];
-		for(int i = 1; i < size; i++){
+		for (int i = 1; i < size; i++)
+		{
 			MPI_Send(&N, 1, MPI_INT, i, 111, MPI_COMM_WORLD);
 		}
 	}
-	else{
+	else
+	{
 		MPI_Recv(&N, 1, MPI_INT, 0, 111, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		A = init_matrix(N,N);
+		A = init_matrix(N, N);
 	}
+
+	printf("m = %d\n", m);
+
 
 	// Normalisation de x + calcul de y0
 	double norm, max, C1;
@@ -555,10 +607,11 @@ void PRR(int m, Vector *x, Matrix *A)
 	}
 
 	// START ITERATION
-	do {
-		if (rank == 0){
+	do
+	{
+		if (rank == 0)
+		{
 			norm = vect_norm(x);
-			// printf("%f\n", norm);
 			y = normalize(x, norm);
 		}
 		else
@@ -566,7 +619,8 @@ void PRR(int m, Vector *x, Matrix *A)
 			y = init_vector(N);
 		}
 		// C0 = || y0 ||^2
-		if (rank == 0){
+		if (rank == 0)
+		{
 			norm = vect_norm(y);
 			C1 = norm * norm;
 		}
@@ -582,11 +636,8 @@ void PRR(int m, Vector *x, Matrix *A)
 			V[i] = init_vector(N);
 		}
 
-		// printf("C : \n");
 		step4(N, C, A, y, m, V, rank);
-		// print_vector(C);
 
-		
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
 		Cc = init_matrix(m, m);
@@ -613,6 +664,7 @@ void PRR(int m, Vector *x, Matrix *A)
 		// Test pour la projection ls
 
 		residus = step6(A, m, vect_ritz, val_ritz);
+
 		max = max_in_vector(residus);
 
 		// ON RESTART
@@ -624,44 +676,53 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
-			// FREE MEMORY 
-			free_vector(y);
-			free_matrix(B);
-			free_matrix(Cc);
-			free_vector(C);
+		// FREE MEMORY
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
 		iter++;
 		x = vect_ritz[i];
-		if (rank == 0){
+		if (rank == 0)
+		{
+			printf("ITER %d\n", iter);
+			// print_vector(vect_ritz[i]);
 			printf("VAL RITZ : \n");
 			print_vector(val_ritz);
 			max_r = max_in_vector(residus);
-			for(int i = 1; i < size; i++){
+			for (int i = 1; i < size; i++)
+			{
 				MPI_Send(&max_r, 1, MPI_INT, i, 001, MPI_COMM_WORLD);
 			}
 		}
-		else{
-			MPI_Recv(&max_r, 1, MPI_INT, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);			
+		else
+		{
+			MPI_Recv(&max_r, 1, MPI_INT, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
 
-	}while( (max_r > P) && (iter < MAX_ITER));
-	
+	} while ((max_r > P) && (iter < MAX_ITER));
 }
 int main(int argc, char **argv)
 {
 	MPI_Init(&argc, &argv);
-	int size; MPI_Comm_size(MPI_COMM_WORLD, &size);
-	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	
+	int size;
+	MPI_Comm_size(MPI_COMM_WORLD, &size);
+	int rank;
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
 	int k, m;
-	if (rank == 0){
+	if (rank == 0)
+	{
 		printf("Choose number of eigenvalues compute : ");
 		scanf("%d", &k);
-		m = 2*k; // Size subspace of kylov
-		for(int i = 1; i < size; i++){
+		m = 2 * k; // Size subspace of kylov
+		for (int i = 1; i < size; i++)
+		{
 			MPI_Send(&m, 1, MPI_INT, i, 88, MPI_COMM_WORLD);
 		}
-	}	
-	else {
+	}
+	else
+	{
 		MPI_Recv(&m, 1, MPI_INT, 0, 88, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
 
@@ -678,20 +739,6 @@ int main(int argc, char **argv)
 		fill_vector_with_random_values(v);
 		printf("\n");
 	}
-
-	// double wr[m];
-	// double vr[m*m];
-	// compute_eigenvalues_and_vectors(A->size[0], A, wr, vr);
-
-	// for(int i=0; i < m; i++){
-	// 	printf("%f ", wr[i]);
-	// }
-	// printf("\n");
-
-	// for(int i=0; i < m*m; i++){
-	// 	printf("%f ", vr[i]);
-	// }
-	// printf("\n");
 
 	double start, end;
 
