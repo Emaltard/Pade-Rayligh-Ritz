@@ -10,7 +10,7 @@
 #include "mmio.h"
 
 #define K 5		// Nombre de valeurs propres
-#define P 0.001 // Precision
+#define P 0.1 // Precision
 #define thr 4   // Nombre de Threads
 #define MAX_ITER 100
 
@@ -254,6 +254,7 @@ void prod_mat_vect_mpi(Matrix *a, Vector *b, Vector *c)
 	prod_mat_vect(sub_a, b, sub_c);
 	gather_vector(c, sub_c);
 	free_matrix(sub_a);
+	free_vector(sub_c);
 }
 
 /* Produit Matrice Matrice */
@@ -321,16 +322,13 @@ Vector *vector_minus_vector(Vector *v1, Vector *v2)
 double max_in_vector(Vector *v1)
 {
 	double max = 0.0;
-	int i_max = 0;
 	for (int i = 0; i < v1->size; i++)
 	{
 		if (v1->data[i] > max)
 		{
 			max = v1->data[i];
-			i_max = i;
 		}
 	}
-	printf("i_max : %d\n", i_max);
 	return max;
 }
 
@@ -427,8 +425,6 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 		y->data = &(eigen_vect->data[i * m]);
 		prod_mat_vect(Vm, y, vect_ritz[i]);
 	}
-
-	// print_vector(val_ritz);
 }
 
 /* Etape 6 de l'algorithme, on calcule les residus pour savoir si on doit redemmarer l'algorithme */
@@ -595,8 +591,6 @@ void PRR(int m, Vector *x, Matrix *A)
 	}
 
 	printf("m = %d\n", m);
-
-
 	// Normalisation de x + calcul de y0
 	double norm, max, C1;
 	Vector *y, *residus, *C, *val_ritz;
@@ -634,10 +628,10 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			C->data[0] = C1;
 		}
-		for (int i = 0; i < m; i++)
-		{
-			V[i] = init_vector(N);
-		}
+		// for (int i = 0; i < m; i++)
+		// {
+		// 	//V[i] = init_vector(N);
+		// }
 
 		step4(N, C, A, y, m, V, rank);
 
@@ -650,15 +644,12 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			fill_B_and_C(B, Cc, C);
 			inversion_matrix(B);
-			// print_matrix(B)
 			prod_mat_mat(B, Cc, Xm);
-			// printf("MATRIX \n");
-			// print_matrix(Xm);
 			// Calcul des valeurs propres et vecteurs propres de Xm
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
 
-		val_ritz = init_vector(m);
+		//val_ritz = init_vector(m);
 		if (rank == 0)
 		{
 			step5(m, Xm, Vm, val_ritz, vect_ritz);
@@ -679,19 +670,11 @@ void PRR(int m, Vector *x, Matrix *A)
 				break;
 			}
 		}
-		// FREE MEMORY
-		free_vector(y);
-		free_matrix(B);
-		free_matrix(Cc);
-		free_vector(C);
+
 		iter++;
 		x = vect_ritz[i];
 		if (rank == 0)
 		{
-			printf("ITER %d\n", iter);
-			// print_vector(vect_ritz[i]);
-			printf("VAL RITZ : \n");
-			print_vector(val_ritz);
 			max_r = max_in_vector(residus);
 			for (int i = 1; i < size; i++)
 			{
@@ -703,7 +686,25 @@ void PRR(int m, Vector *x, Matrix *A)
 			MPI_Recv(&max_r, 1, MPI_INT, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
 
+		// FREE MEMORY
+		free_vector(y);
+		free_matrix(B);
+		free_matrix(Cc);
+		free_vector(C);
+		free_matrix(Xm);
+		free_matrix(Vm);
+		
 	} while ((max_r > P) && (iter < MAX_ITER));
+	printf("VAL RITZ : \n");
+	print_vector(val_ritz);
+	printf("Number of iterations : %d\n", iter);
+
+	// FREE MEMORY
+	free_vector(val_ritz);
+	for(int i = 0; i < m; i++){
+		free_vector(vect_ritz[i]);
+	}
+
 }
 int main(int argc, char **argv)
 {
