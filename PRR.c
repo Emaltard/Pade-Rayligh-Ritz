@@ -9,9 +9,9 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define P 1.e-7 // Precision
+#define P 1.e-6 // Precision
 #define NB_THREADS 4   // Nombre de Threads
-#define MAX_ITER 10
+#define MAX_ITER 50
 
 /* DGEEV prototype */
 /*
@@ -109,6 +109,15 @@ void print_matrix(Matrix *m)
 	}
 }
 
+double sum_vector(Vector* v){
+	double sum = 0.0;
+	for(int i = 0; i < v->size; i++){
+		sum += v->data[i];
+	}
+
+	return sum;
+}
+
 //////////////////////////////////////////////////////////////
 
 /* Retourne un double aléatoire entre a et b */
@@ -175,6 +184,17 @@ Vector *normalize(Vector *x, double norm)
 		v->data[i] = x->data[i] / norm;
 	}
 	return v;
+}
+
+/* Calcul la norme d'une matrice*/
+double norme_Frobenus(Matrix *a){
+	double res = 0.0;
+	for(int i = 0; i < a->size[0]; i++){
+		for(int j = 0; j < a->size[1]; j++){
+			res += a->data[i][j]*a->data[i][j];
+		}
+	}
+	return sqrt(res);
 }
 
 ////// MPI ///////
@@ -320,8 +340,8 @@ Vector *vector_minus_vector(Vector *v1, Vector *v2)
 /* Retourne la valeur max dans le vecteur v1 */
 double max_in_vector(Vector *v1)
 {
-	double max = 0.0;
-	for (int i = 0; i < v1->size; i++)
+	double max = v1->data[0];
+	for (int i = 1; i < v1->size; i++)
 	{
 		if (v1->data[i] > max)
 		{
@@ -331,6 +351,19 @@ double max_in_vector(Vector *v1)
 	return max;
 }
 
+/* Retourne la valeur min dans le vecteur v1 */
+double min_in_vector(Vector *v1)
+{
+	double min = v1->data[0];
+	for (int i = 1; i < v1->size; i++)
+	{
+		if (v1->data[i] < min)
+		{
+			min = v1->data[i];
+		}
+	}
+	return min;
+}
 ////////////////////////////////////////////////////////////
 /* Inverse la matrice m */
 int inversion_matrix(Matrix *m)
@@ -428,6 +461,7 @@ void step5(int m, Matrix *Xm, Matrix *Vm, Vector *val_ritz, Vector *vect_ritz[m]
 /* Etape 6 de l'algorithme, on calcule les residus pour savoir si on doit redemmarer l'algorithme */
 Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
 {
+	double normA = norme_Frobenus(A);
 	Vector *residus = init_vector(i);
 	for (int j = 0; j < i; j++)
 	{
@@ -435,9 +469,10 @@ Vector *step6(Matrix *A, int i, Vector *ritz_vectors[i], Vector *val_ritz)
 		prod_mat_vect(A, ritz_vectors[j], v1);
 		Vector *v2 = scalar_mult_vector(val_ritz->data[j], ritz_vectors[j]);
 
-		residus->data[j] = vect_norm(vector_minus_vector(v1, v2));
+		residus->data[j] = vect_norm(vector_minus_vector(v1, v2))*(1/normA);
 		free_vector(v1);
 		free_vector(v2);
+		
 	}
 	return residus;
 }
@@ -586,7 +621,8 @@ void PRR(int m, Vector *x, Matrix *A)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	// STEP 1
-	int N, max_r;
+	int N;
+	double min_r;
 	if (rank == 0)
 	{
 		N = A->size[0];
@@ -629,14 +665,11 @@ void PRR(int m, Vector *x, Matrix *A)
 
 		// Calcul de C1, C2,....C2m-1
 		C = init_vector(2 * m);
-		if (rank == 0)
-		{
+		if (rank == 0)	{
 			C->data[0] = 1.0;
 		}
 
 		step4(N, C, A, y, m, V, rank);
-		// printf("C \n	");
-		// print_vector(C);
 	
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
@@ -652,41 +685,26 @@ void PRR(int m, Vector *x, Matrix *A)
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
 	
-		//val_ritz = init_vector(m);
-		if (rank == 0)
-		{
+		if (rank == 0){
 			step5(m, Xm, Vm, val_ritz, vect_ritz);
 		}
 
 		// Test pour la projection ls
-
 		residus = step6(A, m, vect_ritz, val_ritz);
-
-		max = max_in_vector(residus);
-
-		// ON RESTART
-		int i;
-		for (i = 0; i < residus->size; i++)
-		{
-			if (residus->data[i] == max)
-			{
-				break;
-			}
-		}
 
 		iter++;
 		x = new_vector_PRR(m, N, vect_ritz);
 		if (rank == 0)
 		{
-			max_r = max_in_vector(residus);
+			min_r = min_in_vector(residus);
 			for (int i = 1; i < size; i++)
 			{
-				MPI_Send(&max_r, 1, MPI_INT, i, 001, MPI_COMM_WORLD);
+				MPI_Send(&min_r, 1, MPI_DOUBLE, i, 001, MPI_COMM_WORLD);
 			}
 		}
 		else
 		{
-			MPI_Recv(&max_r, 1, MPI_INT, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			MPI_Recv(&min_r, 1, MPI_DOUBLE, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
 
 		// FREE MEMORY
@@ -699,11 +717,11 @@ void PRR(int m, Vector *x, Matrix *A)
 		// for(int i = 0 ; i < m ; i++){
 		// 	free_vector(V[i]);
 		// }
-		
-	} while ((max_r > P) && (iter < MAX_ITER));
-	printf("VAL RITZ : \n");
-	print_vector(val_ritz);
-	printf("Number of iterations : %d\n", iter);
+
+	} while ((min_r >= P) && (iter <= MAX_ITER));
+	printf("\nEigenvalues of A : \n	");
+		print_vector(val_ritz);
+	printf("\nNumber of iterations : %d\n", iter);
 
 	// FREE MEMORY
 	free_vector(val_ritz);
@@ -754,7 +772,6 @@ int main(int argc, char **argv)
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	start = MPI_Wtime();
-	printf("START PRR\n");
 	PRR(m, v, A);
 
 	MPI_Barrier(MPI_COMM_WORLD);
