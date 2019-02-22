@@ -9,10 +9,9 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define K 5		// Nombre de valeurs propres
-#define P 0.1 // Precision
-#define thr 4   // Nombre de Threads
-#define MAX_ITER 100
+#define P 1.e-7 // Precision
+#define NB_THREADS 4   // Nombre de Threads
+#define MAX_ITER 10
 
 /* DGEEV prototype */
 /*
@@ -216,8 +215,8 @@ void prod_mat_vect(Matrix *a, Vector *b, Vector *c)
 {
 	int i, j;
 
-	// omp_set_num_threads(thr);
-	// #pragma omp parallel for private(i, j)
+	omp_set_num_threads(NB_THREADS);
+	#pragma omp parallel for private(i, j)
 	for (i = 0; i < c->size; i++)
 	{
 		c->data[i] = 0;
@@ -262,10 +261,10 @@ void prod_mat_mat(Matrix *A, Matrix *B, Matrix *C)
 {
 	int i, j, k;
 
-	// omp_set_num_threads(thr);
-	// #pragma omp parallel shared(A,B,C) private(i,j,k)
-	// {
-	//     #pragma omp for schedule(static)
+	omp_set_num_threads(NB_THREADS);
+	#pragma omp parallel shared(A,B,C) private(i,j,k)
+	{
+	    #pragma omp for schedule(static)
 	for (i = 0; i < A->size[0]; i++)
 	{
 		for (j = 0; j < B->size[1]; j++)
@@ -275,7 +274,7 @@ void prod_mat_mat(Matrix *A, Matrix *B, Matrix *C)
 				C->data[i][j] += A->data[i][k] * B->data[k][j];
 		}
 	}
-	// }
+	}
 }
 
 /* Produit scalaire */
@@ -284,7 +283,7 @@ double prodScalaire(Vector *v1, Vector *v2)
 	double res = 0;
 	int i;
 
-	// omp_set_num_threads(thr);
+	// omp_set_num_threads(NB_THREADS);
 	// #pragma omp parallel for private(i) reduction(+:res)
 	for (i = 0; i < v1->size; i++)
 	{
@@ -298,8 +297,8 @@ Vector *scalar_mult_vector(double scalar, Vector *v1)
 {
 	Vector *v2 = init_vector(v1->size);
 	int i;
-	// omp_set_num_threads(thr);
-	// #pragma omp parallel for private(i)
+	omp_set_num_threads(NB_THREADS);
+	#pragma omp parallel for private(i)
 	for (i = 0; i < v1->size; i++)
 	{
 		v2->data[i] = scalar * v1->data[i];
@@ -346,27 +345,25 @@ int inversion_matrix(Matrix *m)
 
 /* Etape 4 de l'algorithme */
 // C doit etre de taille 2m [0,...., 2m-1], C[0] = C0
-void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m], int rank)
+void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m+1], int rank)
 {
 	V[0] = y0;
 	Vector *y1;
-	y1 = init_vector(N);
-
-	prod_mat_vect_mpi(A, y0, y1);
+	V[1] = init_vector(N);
+	prod_mat_vect_mpi(A, V[0], V[1]);
 
 	for (int i = 1; i <= m - 1; i++)
-	{
+	{	
 		if (rank == 0)
 		{
-			C->data[2 * i - 1] = prodScalaire(y1, y0);
-			C->data[2 * i] = prodScalaire(y1, y1);
-			y0 = y1;
-			V[i] = y0;
+			C->data[2 * i - 1] = prodScalaire(V[i], V[i-1]);
+			C->data[2 * i] = prodScalaire(V[i], V[i]);
+			V[i+1] = init_vector(N);
 		}
-		prod_mat_vect_mpi(A, y0, y1);
+		prod_mat_vect_mpi(A, V[i], V[i+1]);
 		
 	}
-	C->data[2 * m - 1] = prodScalaire(y1, y0);
+	C->data[2 * m - 1] = prodScalaire(V[m], V[m-1]);
 }
 
 /* Remplie les matrices B et C avec le vecteur V suivant la méthode utilisée dans PRR */
@@ -374,8 +371,8 @@ void fill_B_and_C(Matrix *B, Matrix *C, Vector *V)
 {
 	int i, j, s = V->size / 2;
 
-	// 	omp_set_num_threads(thr);
-	// #pragma omp parallel shared(B, C) private(i, j)
+	omp_set_num_threads(NB_THREADS);
+	#pragma omp parallel shared(B, C) private(i, j)
 	for (i = 0; i < s; i++)
 	{
 		for (j = 0; j < s; j++)
@@ -457,6 +454,19 @@ Matrix *convert_vector_array_to_matrix(int m, Vector *y[m])
 		}
 	}
 	return res;
+}
+
+/* Créé un nouveau vecteur initial pour le redémarrage de PRR 
+avec une combinaison linéaire des vecteurs de ritz */
+Vector* new_vector_PRR(int m, int n, Vector* vect_ritz[m]){
+
+	Vector* new = init_vector(n);
+	for(int i = 0; i < n; i++){
+		for(int j = 0; j < m; j++){
+			new->data[i] += (j+1)*vect_ritz[j]->data[i];
+		}
+	}
+	return new;
 }
 
 /* Extrait une matrice d'une fichier .mtx */
@@ -595,7 +605,7 @@ void PRR(int m, Vector *x, Matrix *A)
 	// Normalisation de x + calcul de y0
 	double norm, max, C1;
 	Vector *y, *residus, *C, *val_ritz;
-	Vector *V[m], *vect_ritz[m];
+	Vector *V[m+1], *vect_ritz[m];
 	Matrix *B, *Cc, *Xm, *Vm;
 	val_ritz = init_vector(m);
 
@@ -616,21 +626,17 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			y = init_vector(N);
 		}
-		// C0 = || y0 ||^2
-		if (rank == 0)
-		{
-			norm = vect_norm(y);
-			C1 = norm * norm;
-		}
 
 		// Calcul de C1, C2,....C2m-1
 		C = init_vector(2 * m);
 		if (rank == 0)
 		{
-			C->data[0] = C1;
+			C->data[0] = 1.0;
 		}
 
 		step4(N, C, A, y, m, V, rank);
+		// printf("C \n	");
+		// print_vector(C);
 	
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
@@ -669,7 +675,7 @@ void PRR(int m, Vector *x, Matrix *A)
 		}
 
 		iter++;
-		x = vect_ritz[i];
+		x = new_vector_PRR(m, N, vect_ritz);
 		if (rank == 0)
 		{
 			max_r = max_in_vector(residus);
@@ -690,9 +696,9 @@ void PRR(int m, Vector *x, Matrix *A)
 		free_vector(C);
 		free_matrix(Xm);
 		free_matrix(Vm);
-		for(int i = 0 ; i < m ; i++){
-			free_vector(V[i]);
-		}
+		// for(int i = 0 ; i < m ; i++){
+		// 	free_vector(V[i]);
+		// }
 		
 	} while ((max_r > P) && (iter < MAX_ITER));
 	printf("VAL RITZ : \n");
@@ -748,7 +754,7 @@ int main(int argc, char **argv)
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	start = MPI_Wtime();
-
+	printf("START PRR\n");
 	PRR(m, v, A);
 
 	MPI_Barrier(MPI_COMM_WORLD);
