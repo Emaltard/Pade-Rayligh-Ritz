@@ -1,6 +1,6 @@
 CC = mpicc
 CFLAGS = -W -Wall
-LDFLAGS = -fopenmp -llapacke -lm 
+LDFLAGS = -fopenmp -llapacke -lm -g
 EXEC = PRR
 
 all: $(EXEC)
@@ -13,16 +13,7 @@ clean:
 	@rm -f PRR
 
 run: 
-	mpirun -n 1 ./$(EXEC) mm plat1919.mtx
-
-run4: 
-	mpirun -n 1 ./$(EXEC) mm bfw782b.mtx
+	mpirun -n 2 ./$(EXEC) mm bcsstk01.mtx
 
 test: 
 	mpirun -n 1 ./$(EXEC) txt test.txt
-
-test2: 
-	mpirun -n 2 ./$(EXEC) txt test.txt
-
-valgrind:
-	mpirun -n 1 valgrind ./$(EXEC) txt test.txt

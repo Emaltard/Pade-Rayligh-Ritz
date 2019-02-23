@@ -9,9 +9,9 @@
 #include "lapacke.h"
 #include "mmio.h"
 
-#define P 1.e-6 // Precision
+#define P 1.e-6// Precision
 #define NB_THREADS 4   // Nombre de Threads
-#define MAX_ITER 50
+#define MAX_ITER 1000
 
 /* DGEEV prototype */
 /*
@@ -224,7 +224,7 @@ void gather_vector(Vector *A, Vector *sub_a)
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
 	sub_size = A->size / comm_size;
-
+	// printf("sub_size : %d\n", A->size);
 	MPI_Gather(&(sub_a->data[0]), sub_size, MPI_DOUBLE, &(A->data[0]), sub_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
@@ -303,8 +303,6 @@ double prodScalaire(Vector *v1, Vector *v2)
 	double res = 0;
 	int i;
 
-	// omp_set_num_threads(NB_THREADS);
-	// #pragma omp parallel for private(i) reduction(+:res)
 	for (i = 0; i < v1->size; i++)
 	{
 		res += v1->data[i] * v2->data[i];
@@ -364,7 +362,7 @@ double min_in_vector(Vector *v1)
 	}
 	return min;
 }
-////////////////////////////////////////////////////////////
+ 
 /* Inverse la matrice m */
 int inversion_matrix(Matrix *m)
 {
@@ -391,12 +389,12 @@ void step4(int N, Vector *C, Matrix *A, Vector *y0, int m, Vector *V[m+1], int r
 		{
 			C->data[2 * i - 1] = prodScalaire(V[i], V[i-1]);
 			C->data[2 * i] = prodScalaire(V[i], V[i]);
-			V[i+1] = init_vector(N);
 		}
-		prod_mat_vect_mpi(A, V[i], V[i+1]);
-		
+		V[i+1] = init_vector(N);
+		prod_mat_vect_mpi(A, V[i], V[i+1]);	
 	}
-	C->data[2 * m - 1] = prodScalaire(V[m], V[m-1]);
+
+	if (rank == 0) C->data[2 * m - 1] = prodScalaire(V[m], V[m-1]);
 }
 
 /* Remplie les matrices B et C avec le vecteur V suivant la méthode utilisée dans PRR */
@@ -637,9 +635,8 @@ void PRR(int m, Vector *x, Matrix *A)
 		A = init_matrix(N, N);
 	}
 
-	printf("m = %d\n", m);
 	// Normalisation de x + calcul de y0
-	double norm, max, C1;
+	double norm, C1;
 	Vector *y, *residus, *C, *val_ritz;
 	Vector *V[m+1], *vect_ritz[m];
 	Matrix *B, *Cc, *Xm, *Vm;
@@ -669,13 +666,16 @@ void PRR(int m, Vector *x, Matrix *A)
 			C->data[0] = 1.0;
 		}
 
+
+		/* Etape 4 de l'algorithme */
 		step4(N, C, A, y, m, V, rank);
-	
+		
 		// Calcul de B^ et C^.
 		B = init_matrix(m, m);
 		Cc = init_matrix(m, m);
 		Xm = init_matrix(m, m);
-
+		
+		/* Etape 5/6 pour Xm = B^-1*C*/
 		if (rank == 0)
 		{
 			fill_B_and_C(B, Cc, C);
@@ -684,7 +684,8 @@ void PRR(int m, Vector *x, Matrix *A)
 			// Calcul des valeurs propres et vecteurs propres de Xm
 			Vm = convert_vector_array_to_matrix(m, V);
 		}
-	
+		
+		/* Etape 7 de l'algorithme pour calculer les valeurs et vecteurs de ritz*/		
 		if (rank == 0){
 			step5(m, Xm, Vm, val_ritz, vect_ritz);
 		}
@@ -706,22 +707,25 @@ void PRR(int m, Vector *x, Matrix *A)
 		{
 			MPI_Recv(&min_r, 1, MPI_DOUBLE, 0, 001, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		}
-
+		
 		// FREE MEMORY
-		// free_vector(y);
 		free_matrix(B);
 		free_matrix(Cc);
 		free_vector(C);
 		free_matrix(Xm);
-		free_matrix(Vm);
-		// for(int i = 0 ; i < m ; i++){
-		// 	free_vector(V[i]);
-		// }
+		for(int i = 0 ; i < m ; i++){
+			free_vector(V[i]);
+		}
+		if (rank == 0) 
+			free_matrix(Vm);
 
 	} while ((min_r >= P) && (iter <= MAX_ITER));
-	printf("\nEigenvalues of A : \n	");
+	
+	if (rank == 0){
+		printf("\nEigenvalues of A : \n	");
 		print_vector(val_ritz);
-	printf("\nNumber of iterations : %d\n", iter);
+		printf("\nNumber of iterations : %d\n", iter);
+	}
 
 	// FREE MEMORY
 	free_vector(val_ritz);
@@ -738,12 +742,12 @@ int main(int argc, char **argv)
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	int k, m;
+	int m;
 	if (rank == 0)
 	{
-		printf("Choose number of eigenvalues compute : ");
-		scanf("%d", &k);
-		m = 2 * k; // Size subspace of kylov
+		printf("Choose number m of eigenvalues compute : ");
+		scanf("%d", &m);
+		// m = 2 * k; // Size subspace of kylov
 		for (int i = 1; i < size; i++)
 		{
 			MPI_Send(&m, 1, MPI_INT, i, 88, MPI_COMM_WORLD);
@@ -762,10 +766,15 @@ int main(int argc, char **argv)
 	if (rank == 0)
 	{
 		A = extract_matrix_from_file(argc, argv);
+		if (A->size[0]%size != 0){
+			printf("Error with number of MPI process !\nSize of the matrix not divisible by the number of processes.\n\n");
+			exit(1);
+		}
 		v = init_vector(A->size[0]);
 
 		fill_vector_with_random_values(v);
 		printf("\n");
+		printf("m = %d\n", m);
 	}
 
 	double start, end;
